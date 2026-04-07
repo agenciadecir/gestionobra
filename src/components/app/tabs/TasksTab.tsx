@@ -229,7 +229,7 @@ export default function TasksTab({ project, onRefresh }: TasksTabProps) {
       };
 
       if (formData.description.trim()) body.description = formData.description.trim();
-      if (formData.workerId) body.workerId = formData.workerId;
+      if (formData.workerId && formData.workerId !== '__none') body.workerId = formData.workerId;
       if (formData.dueDate) body.dueDate = formData.dueDate;
       if (formData.notes.trim()) body.notes = formData.notes.trim();
 
@@ -611,7 +611,7 @@ export default function TasksTab({ project, onRefresh }: TasksTabProps) {
             <div className="space-y-2">
               <Label>Trabajador asignado</Label>
               <Select
-                value={formData.workerId}
+                value={formData.workerId || '__none'}
                 onValueChange={(val) =>
                   setFormData((prev) => ({ ...prev, workerId: val }))
                 }
@@ -630,7 +630,7 @@ export default function TasksTab({ project, onRefresh }: TasksTabProps) {
                     </SelectItem>
                   ) : (
                     <>
-                      <SelectItem value="">Sin asignar</SelectItem>
+                      <SelectItem value="__none">Sin asignar</SelectItem>
                       {workers.map((w) => (
                         <SelectItem key={w.id} value={w.id}>
                           {w.name}
