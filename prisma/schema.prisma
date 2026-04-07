@@ -1,0 +1,183 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== CLIENTES ====================
+
+model Client {
+  id        String   @id @default(cuid())
+  name      String
+  type      String   @default("PARTICULAR") // PARTICULAR | CONSORCIO
+  phone     String?
+  email     String?
+  address   String?
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  projects Project[]
+}
+
+// ==================== TRABAJADORES ====================
+
+model Worker {
+  id        String   @id @default(cuid())
+  name      String
+  phone     String?
+  specialty String?
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  laborCosts LaborCost[]
+  tasks      Task[]
+}
+
+// ==================== OBRAS ====================
+
+model Project {
+  id          String    @id @default(cuid())
+  title       String
+  description String?
+  clientId    String
+  address     String?
+  status      String    @default("PRESUPUESTO") // PRESUPUESTO | EN_CURSO | PAUSADA | FINALIZADA | CANCELADA
+  startDate   DateTime?
+  endDate     DateTime?
+  notes       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  client     Client      @relation(fields: [clientId], references: [id])
+  budgets    Budget[]
+  invoices   Invoice[]
+  materials  Material[]
+  laborCosts LaborCost[]
+  tasks      Task[]
+}
+
+// ==================== PRESUPUESTOS ====================
+
+model Budget {
+  id          String   @id @default(cuid())
+  projectId   String
+  date        DateTime @default(now())
+  description String?
+  status      String   @default("PENDIENTE") // PENDIENTE | APROBADO | RECHAZADO
+  totalAmount Float    @default(0)
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  project Project     @relation(fields: [projectId], references: [id])
+  items   BudgetItem[]
+}
+
+model BudgetItem {
+  id          String @id @default(cuid())
+  budgetId    String
+  description String
+  quantity    Float  @default(1)
+  unit        String @default("un")
+  unitPrice   Float  @default(0)
+  totalPrice  Float  @default(0)
+  category    String @default("OTRO") // MANO_DE_OBRA | MATERIAL | OTRO
+
+  budget Budget @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+}
+
+// ==================== FACTURAS ====================
+
+model Invoice {
+  id        String   @id @default(cuid())
+  projectId String
+  number    String
+  date      DateTime @default(now())
+  amount    Float    @default(0)
+  status    String   @default("PENDIENTE") // PENDIENTE | PAGADA_PARCIALMENTE | PAGADA | ANULADA
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project  Project   @relation(fields: [projectId], references: [id])
+  payments Payment[]
+}
+
+// ==================== PAGOS ====================
+
+model Payment {
+  id         String   @id @default(cuid())
+  invoiceId  String
+  date       DateTime @default(now())
+  amount     Float
+  method     String   @default("TRANSFERENCIA") // EFECTIVO | TRANSFERENCIA | CHEQUE | OTRO
+  notes      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+}
+
+// ==================== MATERIALES ====================
+
+model Material {
+  id            String   @id @default(cuid())
+  projectId     String
+  description   String
+  quantity      Float    @default(1)
+  unit          String   @default("un")
+  unitCost      Float    @default(0)
+  totalCost     Float    @default(0)
+  purchasedBy   String   @default("YO") // YO | CLIENTE
+  invoiceNumber String?
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id])
+}
+
+// ==================== COSTOS MANO DE OBRA ====================
+
+model LaborCost {
+  id               String    @id @default(cuid())
+  projectId        String
+  workerId         String
+  description      String
+  workerPrice      Float     @default(0) // Precio que cobra el trabajador
+  markupPercentage Float     @default(0) // Porcentaje de ganancia
+  markupAmount     Float     @default(0) // Valor agregado
+  finalPrice       Float     @default(0) // Precio final (workerPrice + markupAmount)
+  paidToWorker     Boolean   @default(false)
+  paidDate         DateTime?
+  notes            String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id])
+  worker  Worker  @relation(fields: [workerId], references: [id])
+}
+
+// ==================== TAREAS ====================
+
+model Task {
+  id          String    @id @default(cuid())
+  projectId   String
+  title       String
+  description String?
+  status      String    @default("PENDIENTE") // PENDIENTE | EN_CURSO | COMPLETADA
+  priority    String    @default("MEDIA") // BAJA | MEDIA | ALTA | URGENTE
+  workerId    String?
+  dueDate     DateTime?
+  completedDate DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id])
+  worker  Worker? @relation(fields: [workerId], references: [id])
+}

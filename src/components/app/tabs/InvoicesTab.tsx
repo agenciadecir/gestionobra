@@ -1,0 +1,817 @@
+'use client';
+
+import { useState } from 'react';
+import type { Project, Invoice, Payment } from '@/lib/types';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Progress } from '@/components/ui/progress';
+import { Separator } from '@/components/ui/separator';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  Plus,
+  Trash2,
+  FileText,
+  DollarSign,
+  CreditCard,
+  ChevronDown,
+  ChevronUp,
+} from 'lucide-react';
+import { toast } from 'sonner';
+
+interface InvoicesTabProps {
+  project: Project;
+  onRefresh: () => void;
+}
+
+const formatMoney = (amount: number) =>
+  new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(
+    amount
+  );
+
+const formatDate = (date: string) =>
+  new Date(date).toLocaleDateString('es-AR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
+
+const statusConfig: Record<
+  Invoice['status'],
+  { label: string; className: string }
+> = {
+  PENDIENTE: {
+    label: 'Pendiente',
+    className: 'bg-yellow-100 text-yellow-800 border-yellow-300',
+  },
+  PAGADA_PARCIALMENTE: {
+    label: 'Pagada Parcialmente',
+    className: 'bg-orange-100 text-orange-800 border-orange-300',
+  },
+  PAGADA: {
+    label: 'Pagada',
+    className: 'bg-green-100 text-green-800 border-green-300',
+  },
+  ANULADA: {
+    label: 'Anulada',
+    className: 'bg-red-100 text-red-800 border-red-300',
+  },
+};
+
+const methodLabels: Record<Payment['method'], string> = {
+  EFECTIVO: 'Efectivo',
+  TRANSFERENCIA: 'Transferencia',
+  CHEQUE: 'Cheque',
+  OTRO: 'Otro',
+};
+
+export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
+  const invoices = project.invoices ?? [];
+
+  const [expandedInvoiceId, setExpandedInvoiceId] = useState<string | null>(null);
+
+  // Nueva Factura dialog
+  const [showNewInvoiceDialog, setShowNewInvoiceDialog] = useState(false);
+  const [newInvoice, setNewInvoice] = useState({
+    number: '',
+    amount: '',
+    date: new Date().toISOString().split('T')[0],
+    notes: '',
+  });
+
+  // Editar Factura dialog
+  const [showEditInvoiceDialog, setShowEditInvoiceDialog] = useState(false);
+  const [editingInvoice, setEditingInvoice] = useState<Invoice | null>(null);
+  const [editInvoiceForm, setEditInvoiceForm] = useState({
+    number: '',
+    amount: '',
+    status: '' as Invoice['status'] | '',
+    notes: '',
+  });
+
+  // Eliminar Factura dialog
+  const [showDeleteInvoiceDialog, setShowDeleteInvoiceDialog] = useState(false);
+  const [deletingInvoice, setDeletingInvoice] = useState<Invoice | null>(null);
+
+  // Agregar Pago dialog
+  const [showPaymentDialog, setShowPaymentDialog] = useState(false);
+  const [paymentInvoiceId, setPaymentInvoiceId] = useState<string | null>(null);
+  const [newPayment, setNewPayment] = useState({
+    amount: '',
+    date: new Date().toISOString().split('T')[0],
+    method: '' as Payment['method'] | '',
+    notes: '',
+  });
+
+  // Eliminar Pago dialog
+  const [showDeletePaymentDialog, setShowDeletePaymentDialog] = useState(false);
+  const [deletingPayment, setDeletingPayment] = useState<Payment | null>(null);
+
+  // ── Summary calculations ──
+  const totalFacturado = invoices
+    .filter((inv) => inv.status !== 'ANULADA')
+    .reduce((sum, inv) => sum + inv.amount, 0);
+
+  const totalCobrado = invoices
+    .filter((inv) => inv.status !== 'ANULADA')
+    .reduce((sum, inv) => {
+      const paymentsTotal = (inv.payments ?? []).reduce(
+        (pSum, p) => pSum + p.amount,
+        0
+      );
+      return sum + paymentsTotal;
+    }, 0);
+
+  const saldoPendiente = totalFacturado - totalCobrado;
+
+  // ── Handlers ──
+  const handleCreateInvoice = async () => {
+    if (!newInvoice.number.trim() || !newInvoice.amount) {
+      toast.error('Completá el número y monto de la factura');
+      return;
+    }
+    try {
+      const res = await fetch(`/api/projects/${project.id}/invoices`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          number: newInvoice.number.trim(),
+          amount: parseFloat(newInvoice.amount),
+          date: newInvoice.date || undefined,
+          notes: newInvoice.notes.trim() || undefined,
+        }),
+      });
+      if (!res.ok) throw new Error('Error al crear factura');
+      toast.success('Factura creada correctamente');
+      setShowNewInvoiceDialog(false);
+      setNewInvoice({ number: '', amount: '', date: new Date().toISOString().split('T')[0], notes: '' });
+      onRefresh();
+    } catch {
+      toast.error('Error al crear factura');
+    }
+  };
+
+  const handleEditInvoice = async () => {
+    if (!editingInvoice) return;
+    if (!editInvoiceForm.number.trim() || !editInvoiceForm.amount || !editInvoiceForm.status) {
+      toast.error('Completá todos los campos requeridos');
+      return;
+    }
+    try {
+      const res = await fetch(`/api/invoices/${editingInvoice.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          number: editInvoiceForm.number.trim(),
+          amount: parseFloat(editInvoiceForm.amount),
+          status: editInvoiceForm.status,
+          notes: editInvoiceForm.notes.trim() || undefined,
+        }),
+      });
+      if (!res.ok) throw new Error('Error al editar factura');
+      toast.success('Factura actualizada correctamente');
+      setShowEditInvoiceDialog(false);
+      setEditingInvoice(null);
+      onRefresh();
+    } catch {
+      toast.error('Error al editar factura');
+    }
+  };
+
+  const handleDeleteInvoice = async () => {
+    if (!deletingInvoice) return;
+    try {
+      const res = await fetch(`/api/invoices/${deletingInvoice.id}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) throw new Error('Error al eliminar factura');
+      toast.success('Factura eliminada correctamente');
+      setShowDeleteInvoiceDialog(false);
+      setDeletingInvoice(null);
+      setExpandedInvoiceId(null);
+      onRefresh();
+    } catch {
+      toast.error('Error al eliminar factura');
+    }
+  };
+
+  const handleCreatePayment = async () => {
+    if (!paymentInvoiceId || !newPayment.amount || !newPayment.method) {
+      toast.error('Completá el monto y método de pago');
+      return;
+    }
+    try {
+      const res = await fetch(`/api/invoices/${paymentInvoiceId}/payments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount: parseFloat(newPayment.amount),
+          date: newPayment.date || undefined,
+          method: newPayment.method,
+          notes: newPayment.notes.trim() || undefined,
+        }),
+      });
+      if (!res.ok) throw new Error('Error al agregar pago');
+      toast.success('Pago registrado correctamente');
+      setShowPaymentDialog(false);
+      setPaymentInvoiceId(null);
+      setNewPayment({ amount: '', date: new Date().toISOString().split('T')[0], method: '', notes: '' });
+      onRefresh();
+    } catch {
+      toast.error('Error al agregar pago');
+    }
+  };
+
+  const handleDeletePayment = async () => {
+    if (!deletingPayment) return;
+    try {
+      const res = await fetch(`/api/payments/${deletingPayment.id}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) throw new Error('Error al eliminar pago');
+      toast.success('Pago eliminado correctamente');
+      setShowDeletePaymentDialog(false);
+      setDeletingPayment(null);
+      onRefresh();
+    } catch {
+      toast.error('Error al eliminar pago');
+    }
+  };
+
+  const openEditInvoice = (invoice: Invoice) => {
+    setEditingInvoice(invoice);
+    setEditInvoiceForm({
+      number: invoice.number,
+      amount: String(invoice.amount),
+      status: invoice.status,
+      notes: invoice.notes ?? '',
+    });
+    setShowEditInvoiceDialog(true);
+  };
+
+  const openDeleteInvoice = (invoice: Invoice) => {
+    setDeletingInvoice(invoice);
+    setShowDeleteInvoiceDialog(true);
+  };
+
+  const openPaymentDialog = (invoiceId: string) => {
+    setPaymentInvoiceId(invoiceId);
+    setNewPayment({ amount: '', date: new Date().toISOString().split('T')[0], method: '', notes: '' });
+    setShowPaymentDialog(true);
+  };
+
+  const openDeletePayment = (payment: Payment) => {
+    setDeletingPayment(payment);
+    setShowDeletePaymentDialog(true);
+  };
+
+  const toggleExpand = (invoiceId: string) => {
+    setExpandedInvoiceId((prev) => (prev === invoiceId ? null : invoiceId));
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* ── Summary row ── */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <Card>
+          <CardContent className="flex items-center gap-3 pt-0">
+            <div className="flex size-10 items-center justify-center rounded-lg bg-blue-100 text-blue-700">
+              <FileText className="size-5" />
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">Total Facturado</p>
+              <p className="text-lg font-bold">{formatMoney(totalFacturado)}</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="flex items-center gap-3 pt-0">
+            <div className="flex size-10 items-center justify-center rounded-lg bg-green-100 text-green-700">
+              <CreditCard className="size-5" />
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">Total Cobrado</p>
+              <p className="text-lg font-bold">{formatMoney(totalCobrado)}</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="flex items-center gap-3 pt-0">
+            <div className="flex size-10 items-center justify-center rounded-lg bg-red-100 text-red-700">
+              <DollarSign className="size-5" />
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">Saldo Pendiente</p>
+              <p className="text-lg font-bold">{formatMoney(saldoPendiente)}</p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* ── Header with button ── */}
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold">Facturas</h2>
+        <Button onClick={() => setShowNewInvoiceDialog(true)}>
+          <Plus className="size-4" />
+          Nueva Factura
+        </Button>
+      </div>
+
+      {/* ── Invoice list ── */}
+      {invoices.length === 0 ? (
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+            <FileText className="mb-3 size-12 text-muted-foreground/50" />
+            <p className="text-muted-foreground">No hay facturas registradas</p>
+            <p className="text-sm text-muted-foreground/70">
+              Hacé clic en &quot;Nueva Factura&quot; para agregar una
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-4">
+          {invoices.map((invoice) => {
+            const payments = invoice.payments ?? [];
+            const totalPaid = payments.reduce((sum, p) => sum + p.amount, 0);
+            const paymentPercent =
+              invoice.amount > 0 ? Math.min((totalPaid / invoice.amount) * 100, 100) : 0;
+            const isExpanded = expandedInvoiceId === invoice.id;
+            const isAnulada = invoice.status === 'ANULADA';
+
+            return (
+              <Card key={invoice.id} className={isAnulada ? 'opacity-60' : ''}>
+                <CardHeader>
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <CardTitle className="font-bold">{invoice.number}</CardTitle>
+                      <Badge className={statusConfig[invoice.status].className}>
+                        {statusConfig[invoice.status].label}
+                      </Badge>
+                      <span className="text-sm text-muted-foreground">
+                        {formatDate(invoice.date)}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg font-semibold">
+                        {formatMoney(invoice.amount)}
+                      </span>
+                      {!isAnulada && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => openPaymentDialog(invoice.id)}
+                        >
+                          <Plus className="size-3.5" />
+                          Pago
+                        </Button>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => openEditInvoice(invoice)}
+                      >
+                        <FileText className="size-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-destructive hover:text-destructive"
+                        onClick={() => openDeleteInvoice(invoice)}
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </CardHeader>
+
+                {!isAnulada && (
+                  <CardContent className="space-y-2">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">
+                        Cobrado: {formatMoney(totalPaid)} de {formatMoney(invoice.amount)}
+                      </span>
+                      <span className="font-medium">{paymentPercent.toFixed(0)}%</span>
+                    </div>
+                    <Progress value={paymentPercent} />
+
+                    {payments.length > 0 && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="mt-2 w-full justify-between"
+                        onClick={() => toggleExpand(invoice.id)}
+                      >
+                        <span className="text-sm">
+                          {payments.length} pago{payments.length !== 1 ? 's' : ''}
+                        </span>
+                        {isExpanded ? (
+                          <ChevronUp className="size-4" />
+                        ) : (
+                          <ChevronDown className="size-4" />
+                        )}
+                      </Button>
+                    )}
+
+                    {isExpanded && payments.length > 0 && (
+                      <div className="mt-2 space-y-2 rounded-lg border p-3">
+                        {payments.map((payment, idx) => {
+                          const runningTotal = payments
+                            .slice(0, idx + 1)
+                            .reduce((sum, p) => sum + p.amount, 0);
+                          return (
+                            <div key={payment.id}>
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="flex-1 space-y-1">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="text-sm font-medium">
+                                      {formatDate(payment.date)}
+                                    </span>
+                                    <Badge variant="secondary" className="text-xs">
+                                      {methodLabels[payment.method]}
+                                    </Badge>
+                                    <span className="font-semibold">
+                                      {formatMoney(payment.amount)}
+                                    </span>
+                                    <span className="text-xs text-muted-foreground">
+                                      (Acum: {formatMoney(runningTotal)})
+                                    </span>
+                                  </div>
+                                  {payment.notes && (
+                                    <p className="text-sm text-muted-foreground">
+                                      {payment.notes}
+                                    </p>
+                                  )}
+                                </div>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="size-7 shrink-0 text-destructive hover:text-destructive"
+                                  onClick={() => openDeletePayment(payment)}
+                                >
+                                  <Trash2 className="size-3.5" />
+                                </Button>
+                              </div>
+                              {idx < payments.length - 1 && (
+                                <Separator className="my-2" />
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {invoice.notes && (
+                      <p className="mt-2 text-sm text-muted-foreground italic">
+                        {invoice.notes}
+                      </p>
+                    )}
+                  </CardContent>
+                )}
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════════════════════════ */}
+      {/* Nueva Factura Dialog */}
+      {/* ════════════════════════════════════════════════════════════ */}
+      <Dialog open={showNewInvoiceDialog} onOpenChange={setShowNewInvoiceDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Nueva Factura</DialogTitle>
+            <DialogDescription>
+              Agregá una nueva factura al proyecto.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="inv-number">
+                Número de Factura <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="inv-number"
+                placeholder="Ej: 001-00012345"
+                value={newInvoice.number}
+                onChange={(e) =>
+                  setNewInvoice({ ...newInvoice, number: e.target.value })
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="inv-amount">
+                Monto <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="inv-amount"
+                type="number"
+                step="0.01"
+                min="0"
+                placeholder="0.00"
+                value={newInvoice.amount}
+                onChange={(e) =>
+                  setNewInvoice({ ...newInvoice, amount: e.target.value })
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="inv-date">Fecha</Label>
+              <Input
+                id="inv-date"
+                type="date"
+                value={newInvoice.date}
+                onChange={(e) =>
+                  setNewInvoice({ ...newInvoice, date: e.target.value })
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="inv-notes">Notas</Label>
+              <Textarea
+                id="inv-notes"
+                placeholder="Notas opcionales..."
+                value={newInvoice.notes}
+                onChange={(e) =>
+                  setNewInvoice({ ...newInvoice, notes: e.target.value })
+                }
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowNewInvoiceDialog(false)}
+            >
+              Cancelar
+            </Button>
+            <Button onClick={handleCreateInvoice}>Crear Factura</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ════════════════════════════════════════════════════════════ */}
+      {/* Editar Factura Dialog */}
+      {/* ════════════════════════════════════════════════════════════ */}
+      <Dialog open={showEditInvoiceDialog} onOpenChange={setShowEditInvoiceDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Editar Factura</DialogTitle>
+            <DialogDescription>
+              Modificá los datos de la factura.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-inv-number">
+                Número de Factura <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="edit-inv-number"
+                value={editInvoiceForm.number}
+                onChange={(e) =>
+                  setEditInvoiceForm({ ...editInvoiceForm, number: e.target.value })
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-inv-amount">
+                Monto <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="edit-inv-amount"
+                type="number"
+                step="0.01"
+                min="0"
+                value={editInvoiceForm.amount}
+                onChange={(e) =>
+                  setEditInvoiceForm({ ...editInvoiceForm, amount: e.target.value })
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-inv-status">
+                Estado <span className="text-destructive">*</span>
+              </Label>
+              <Select
+                value={editInvoiceForm.status}
+                onValueChange={(value) =>
+                  setEditInvoiceForm({
+                    ...editInvoiceForm,
+                    status: value as Invoice['status'],
+                  })
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Seleccioná un estado" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="PENDIENTE">Pendiente</SelectItem>
+                  <SelectItem value="PAGADA_PARCIALMENTE">
+                    Pagada Parcialmente
+                  </SelectItem>
+                  <SelectItem value="PAGADA">Pagada</SelectItem>
+                  <SelectItem value="ANULADA">Anulada</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-inv-notes">Notas</Label>
+              <Textarea
+                id="edit-inv-notes"
+                value={editInvoiceForm.notes}
+                onChange={(e) =>
+                  setEditInvoiceForm({ ...editInvoiceForm, notes: e.target.value })
+                }
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowEditInvoiceDialog(false)}
+            >
+              Cancelar
+            </Button>
+            <Button onClick={handleEditInvoice}>Guardar Cambios</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ════════════════════════════════════════════════════════════ */}
+      {/* Eliminar Factura AlertDialog */}
+      {/* ════════════════════════════════════════════════════════════ */}
+      <AlertDialog
+        open={showDeleteInvoiceDialog}
+        onOpenChange={setShowDeleteInvoiceDialog}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar factura?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta acción no se puede deshacer. Se eliminará la factura{' '}
+              <span className="font-semibold">{deletingInvoice?.number}</span> y
+              todos sus pagos asociados.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-white hover:bg-destructive/90"
+              onClick={handleDeleteInvoice}
+            >
+              Eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* ════════════════════════════════════════════════════════════ */}
+      {/* Agregar Pago Dialog */}
+      {/* ════════════════════════════════════════════════════════════ */}
+      <Dialog open={showPaymentDialog} onOpenChange={setShowPaymentDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Agregar Pago</DialogTitle>
+            <DialogDescription>
+              Registrá un nuevo pago para la factura.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="pay-amount">
+                Monto <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="pay-amount"
+                type="number"
+                step="0.01"
+                min="0"
+                placeholder="0.00"
+                value={newPayment.amount}
+                onChange={(e) =>
+                  setNewPayment({ ...newPayment, amount: e.target.value })
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="pay-date">Fecha</Label>
+              <Input
+                id="pay-date"
+                type="date"
+                value={newPayment.date}
+                onChange={(e) =>
+                  setNewPayment({ ...newPayment, date: e.target.value })
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="pay-method">
+                Método de Pago <span className="text-destructive">*</span>
+              </Label>
+              <Select
+                value={newPayment.method}
+                onValueChange={(value) =>
+                  setNewPayment({
+                    ...newPayment,
+                    method: value as Payment['method'],
+                  })
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Seleccioná un método" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="EFECTIVO">Efectivo</SelectItem>
+                  <SelectItem value="TRANSFERENCIA">Transferencia</SelectItem>
+                  <SelectItem value="CHEQUE">Cheque</SelectItem>
+                  <SelectItem value="OTRO">Otro</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="pay-notes">Notas</Label>
+              <Textarea
+                id="pay-notes"
+                placeholder="Notas opcionales..."
+                value={newPayment.notes}
+                onChange={(e) =>
+                  setNewPayment({ ...newPayment, notes: e.target.value })
+                }
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowPaymentDialog(false)}
+            >
+              Cancelar
+            </Button>
+            <Button onClick={handleCreatePayment}>Registrar Pago</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ════════════════════════════════════════════════════════════ */}
+      {/* Eliminar Pago AlertDialog */}
+      {/* ════════════════════════════════════════════════════════════ */}
+      <AlertDialog
+        open={showDeletePaymentDialog}
+        onOpenChange={setShowDeletePaymentDialog}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar pago?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta acción no se puede deshacer. Se eliminará el pago de{' '}
+              <span className="font-semibold">
+                {formatMoney(deletingPayment?.amount ?? 0)}
+              </span>{' '}
+              registrado el{' '}
+              <span className="font-semibold">
+                {deletingPayment ? formatDate(deletingPayment.date) : ''}
+              </span>
+              .
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-white hover:bg-destructive/90"
+              onClick={handleDeletePayment}
+            >
+              Eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
