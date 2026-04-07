@@ -51,6 +51,7 @@ export async function POST(
         totalCost: quantity * unitCost,
         purchasedBy: body.purchasedBy || "YO",
         reimbursed: body.reimbursed || false,
+        invoiceId: body.invoiceId || null,
         invoiceNumber: body.invoiceNumber || null,
         notes: body.notes || null,
       },

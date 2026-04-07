@@ -5,8 +5,17 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import type { Project, Material } from '@/lib/types';
-import { Plus, Trash2, Package, Edit, CheckCircle } from 'lucide-react';
+import type { Project, Material, Invoice } from '@/lib/types';
+import {
+  Plus,
+  Trash2,
+  Package,
+  Edit,
+  CheckCircle,
+  Link2,
+  Unlink,
+  AlertTriangle,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -60,6 +69,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 interface MaterialsTabProps {
   project: Project;
@@ -82,6 +92,7 @@ const materialSchema = z.object({
   purchasedBy: z.enum(['YO', 'CLIENTE', 'TRABAJADOR']),
   reimbursed: z.boolean(),
   invoiceNumber: z.string().optional(),
+  invoiceId: z.string().optional(),
   notes: z.string().optional(),
 });
 
@@ -89,8 +100,10 @@ type MaterialFormValues = z.infer<typeof materialSchema>;
 
 const purchasedByBadgeClass: Record<string, string> = {
   YO: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400',
-  CLIENTE: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400',
-  TRABAJADOR: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400',
+  CLIENTE:
+    'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400',
+  TRABAJADOR:
+    'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400',
 };
 
 const purchasedByLabel: Record<string, string> = {
@@ -107,11 +120,19 @@ function formatMoney(value: number): string {
   }).format(value);
 }
 
+function getInvoiceLabel(invoice: Invoice): string {
+  return `#${invoice.number}`;
+}
+
 export default function MaterialsTab({ project, onRefresh }: MaterialsTabProps) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingMaterial, setEditingMaterial] = useState<Material | null>(null);
   const [deletingMaterial, setDeletingMaterial] = useState<Material | null>(null);
   const [markingReimbursed, setMarkingReimbursed] = useState<string | null>(null);
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false);
+  const [linkingMaterial, setLinkingMaterial] = useState<Material | null>(null);
+  const [linkInvoiceId, setLinkInvoiceId] = useState<string>('__none');
+  const [linking, setLinking] = useState(false);
 
   const materials = useMemo(() => {
     const items = project.materials ?? [];
@@ -119,6 +140,19 @@ export default function MaterialsTab({ project, onRefresh }: MaterialsTabProps) 
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
   }, [project.materials]);
+
+  // Available invoices (not ANULADA) for linking
+  const availableInvoices = useMemo(() => {
+    const invoices = project.invoices ?? [];
+    return invoices.filter((inv) => inv.status !== 'ANULADA');
+  }, [project.invoices]);
+
+  // Map invoice id -> invoice for quick lookup
+  const invoiceMap = useMemo(() => {
+    const map = new Map<string, Invoice>();
+    (project.invoices ?? []).forEach((inv) => map.set(inv.id, inv));
+    return map;
+  }, [project.invoices]);
 
   const totalCompradoPorMi = useMemo(
     () =>
@@ -152,6 +186,22 @@ export default function MaterialsTab({ project, onRefresh }: MaterialsTabProps) 
     [materials]
   );
 
+  // Pending to invoice: purchasedBy YO or TRABAJADOR, without invoiceId
+  const pendingToInvoice = useMemo(
+    () =>
+      materials.filter(
+        (m) =>
+          (m.purchasedBy === 'YO' || m.purchasedBy === 'TRABAJADOR') &&
+          !m.invoiceId
+      ),
+    [materials]
+  );
+
+  const totalPendingToInvoice = useMemo(
+    () => pendingToInvoice.reduce((sum, m) => sum + m.totalCost, 0),
+    [pendingToInvoice]
+  );
+
   const form = useForm<MaterialFormValues>({
     resolver: zodResolver(materialSchema),
     defaultValues: {
@@ -162,6 +212,7 @@ export default function MaterialsTab({ project, onRefresh }: MaterialsTabProps) 
       purchasedBy: 'YO',
       reimbursed: false,
       invoiceNumber: '',
+      invoiceId: '__none',
       notes: '',
     },
   });
@@ -184,6 +235,7 @@ export default function MaterialsTab({ project, onRefresh }: MaterialsTabProps) 
       purchasedBy: 'YO',
       reimbursed: false,
       invoiceNumber: '',
+      invoiceId: '__none',
       notes: '',
     });
     setDialogOpen(true);
@@ -199,6 +251,7 @@ export default function MaterialsTab({ project, onRefresh }: MaterialsTabProps) 
       purchasedBy: material.purchasedBy,
       reimbursed: material.reimbursed,
       invoiceNumber: material.invoiceNumber ?? '',
+      invoiceId: material.invoiceId ?? '__none',
       notes: material.notes ?? '',
     });
     setDialogOpen(true);
@@ -206,10 +259,22 @@ export default function MaterialsTab({ project, onRefresh }: MaterialsTabProps) 
 
   const onSubmit = async (values: MaterialFormValues) => {
     try {
+      const invoiceId =
+        values.invoiceId && values.invoiceId !== '__none'
+          ? values.invoiceId
+          : null;
+
       const body = {
-        ...values,
-        totalCost: (Number(values.quantity) || 0) * (Number(values.unitCost) || 0),
+        description: values.description,
+        quantity: values.quantity,
+        unit: values.unit,
+        unitCost: values.unitCost,
+        totalCost:
+          (Number(values.quantity) || 0) * (Number(values.unitCost) || 0),
+        purchasedBy: values.purchasedBy,
+        reimbursed: values.reimbursed,
         invoiceNumber: values.invoiceNumber || undefined,
+        invoiceId: invoiceId,
         notes: values.notes || undefined,
       };
 
@@ -283,6 +348,77 @@ export default function MaterialsTab({ project, onRefresh }: MaterialsTabProps) 
     }
   };
 
+  // Open the quick-link dialog
+  const openLinkDialog = (material: Material) => {
+    setLinkingMaterial(material);
+    setLinkInvoiceId('__none');
+    setLinkDialogOpen(true);
+  };
+
+  // Submit the quick-link action
+  const handleLinkInvoice = async () => {
+    if (!linkingMaterial) return;
+    const invoiceId =
+      linkInvoiceId && linkInvoiceId !== '__none' ? linkInvoiceId : null;
+
+    if (!invoiceId) {
+      toast.error('Seleccioná una factura para vincular');
+      return;
+    }
+
+    setLinking(true);
+    try {
+      const res = await fetch(`/api/materials/${linkingMaterial.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invoiceId }),
+      });
+      if (res.ok) {
+        const invoice = invoiceMap.get(invoiceId);
+        toast.success(
+          `Material vinculado a factura ${invoice ? `#${invoice.number}` : ''}`
+        );
+        setLinkDialogOpen(false);
+        setLinkingMaterial(null);
+        onRefresh();
+      } else {
+        const err = await res.json();
+        toast.error(err.error ?? 'Error al vincular la factura');
+      }
+    } catch {
+      toast.error('Error de conexión');
+    } finally {
+      setLinking(false);
+    }
+  };
+
+  // Unlink invoice from a material
+  const handleUnlinkInvoice = async (material: Material) => {
+    try {
+      const res = await fetch(`/api/materials/${material.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invoiceId: null }),
+      });
+      if (res.ok) {
+        toast.success('Factura desvinculada del material');
+        onRefresh();
+      } else {
+        const err = await res.json();
+        toast.error(err.error ?? 'Error al desvincular la factura');
+      }
+    } catch {
+      toast.error('Error de conexión');
+    }
+  };
+
+  // Helper to determine if a material can be linked (no invoice, purchasedBy != CLIENTE)
+  const canLink = (m: Material) =>
+    !m.invoiceId && m.purchasedBy !== 'CLIENTE';
+
+  // Helper to determine if a material can be unlinked (has invoiceId)
+  const canUnlink = (m: Material) => !!m.invoiceId;
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -299,8 +435,20 @@ export default function MaterialsTab({ project, onRefresh }: MaterialsTabProps) 
         </Button>
       </div>
 
+      {/* Alert Banner for Pending to Invoice */}
+      {pendingToInvoice.length > 0 && (
+        <Alert className="border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-700 dark:bg-amber-950/50 dark:text-amber-200">
+          <AlertTriangle className="size-4 text-amber-600 dark:text-amber-400" />
+          <AlertTitle>Materiales pendientes de facturar</AlertTitle>
+          <AlertDescription>
+            ⚠️ Tenés {formatMoney(totalPendingToInvoice)} en materiales pendientes
+            de facturar. Vinculalos a una factura para no perder el registro.
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -349,6 +497,18 @@ export default function MaterialsTab({ project, onRefresh }: MaterialsTabProps) 
             </p>
           </CardContent>
         </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Pendiente de facturar
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold text-red-600 dark:text-red-400">
+              {formatMoney(totalPendingToInvoice)}
+            </p>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Materials Table */}
@@ -371,127 +531,181 @@ export default function MaterialsTab({ project, onRefresh }: MaterialsTabProps) 
         </Card>
       ) : (
         <div className="rounded-md border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Descripción</TableHead>
-                <TableHead className="text-right">Cantidad</TableHead>
-                <TableHead>Unidad</TableHead>
-                <TableHead className="text-right">Costo Unit.</TableHead>
-                <TableHead className="text-right">Costo Total</TableHead>
-                <TableHead>Comprado por</TableHead>
-                <TableHead>Reintegro</TableHead>
-                <TableHead>Factura N°</TableHead>
-                <TableHead className="text-right">Acciones</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {materials.map((material) => (
-                <TableRow key={material.id}>
-                  <TableCell className="font-medium">
-                    {material.description}
-                  </TableCell>
-                  <TableCell className="text-right">{material.quantity}</TableCell>
-                  <TableCell>{material.unit}</TableCell>
-                  <TableCell className="text-right">
-                    {formatMoney(material.unitCost)}
-                  </TableCell>
-                  <TableCell className="text-right font-medium">
-                    {formatMoney(material.totalCost)}
-                  </TableCell>
-                  <TableCell>
-                    <Badge
-                      variant="secondary"
-                      className={purchasedByBadgeClass[material.purchasedBy]}
-                    >
-                      {purchasedByLabel[material.purchasedBy]}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    {material.purchasedBy === 'TRABAJADOR' ? (
-                      material.reimbursed ? (
-                        <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
-                          Reintegrado
+          <div className="max-h-[600px] overflow-y-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Descripción</TableHead>
+                  <TableHead className="text-right">Cantidad</TableHead>
+                  <TableHead>Unidad</TableHead>
+                  <TableHead className="text-right">Costo Unit.</TableHead>
+                  <TableHead className="text-right">Costo Total</TableHead>
+                  <TableHead>Comprado por</TableHead>
+                  <TableHead>Reintegro</TableHead>
+                  <TableHead>Factura Vinculada</TableHead>
+                  <TableHead className="text-right">Acciones</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {materials.map((material) => (
+                  <TableRow key={material.id}>
+                    <TableCell className="font-medium">
+                      {material.description}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {material.quantity}
+                    </TableCell>
+                    <TableCell>{material.unit}</TableCell>
+                    <TableCell className="text-right">
+                      {formatMoney(material.unitCost)}
+                    </TableCell>
+                    <TableCell className="text-right font-medium">
+                      {formatMoney(material.totalCost)}
+                    </TableCell>
+                    <TableCell>
+                      <Badge
+                        variant="secondary"
+                        className={
+                          purchasedByBadgeClass[material.purchasedBy]
+                        }
+                      >
+                        {purchasedByLabel[material.purchasedBy]}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      {material.purchasedBy === 'TRABAJADOR' ? (
+                        material.reimbursed ? (
+                          <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
+                            Reintegrado
+                          </Badge>
+                        ) : (
+                          <Badge className="bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">
+                            Pendiente
+                          </Badge>
+                        )
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {material.invoiceId ? (
+                        <Badge className="gap-1 bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
+                          <Link2 className="size-3" />
+                          {invoiceMap.get(material.invoiceId)
+                            ? getInvoiceLabel(
+                                invoiceMap.get(material.invoiceId)!
+                              )
+                            : 'Factura'}
+                        </Badge>
+                      ) : material.purchasedBy !== 'CLIENTE' ? (
+                        <Badge className="bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">
+                          Sin facturar
                         </Badge>
                       ) : (
-                        <Badge className="bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">
-                          Pendiente
-                        </Badge>
-                      )
-                    ) : (
-                      <span className="text-muted-foreground">—</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {material.invoiceNumber ?? '—'}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      {material.purchasedBy === 'TRABAJADOR' && !material.reimbursed && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-8 text-green-600 hover:text-green-700"
-                          title="Marcar como Reintegrado"
-                          disabled={markingReimbursed === material.id}
-                          onClick={() => handleMarkReimbursed(material.id)}
-                        >
-                          <CheckCircle className="size-4" />
-                          <span className="sr-only">Marcar como Reintegrado</span>
-                        </Button>
+                        <span className="text-muted-foreground">—</span>
                       )}
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-8"
-                        onClick={() => openEditDialog(material)}
-                      >
-                        <Edit className="size-4" />
-                        <span className="sr-only">Editar</span>
-                      </Button>
-                      <AlertDialog
-                        open={deletingMaterial?.id === material.id}
-                        onOpenChange={(open) => {
-                          if (!open) setDeletingMaterial(null);
-                        }}
-                      >
-                        <AlertDialogTrigger asChild>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        {material.purchasedBy === 'TRABAJADOR' &&
+                          !material.reimbursed && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-8 text-green-600 hover:text-green-700"
+                              title="Marcar como Reintegrado"
+                              disabled={markingReimbursed === material.id}
+                              onClick={() => handleMarkReimbursed(material.id)}
+                            >
+                              <CheckCircle className="size-4" />
+                              <span className="sr-only">
+                                Marcar como Reintegrado
+                              </span>
+                            </Button>
+                          )}
+                        {canLink(material) && (
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="size-8 text-destructive hover:text-destructive"
-                            onClick={() => setDeletingMaterial(material)}
+                            className="size-8 text-amber-600 hover:text-amber-700"
+                            title="Vincular a factura"
+                            onClick={() => openLinkDialog(material)}
                           >
-                            <Trash2 className="size-4" />
-                            <span className="sr-only">Eliminar</span>
+                            <Link2 className="size-4" />
+                            <span className="sr-only">
+                              Vincular a factura
+                            </span>
                           </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Eliminar material</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              ¿Estás seguro de que deseas eliminar{' '}
-                              <strong>{material.description}</strong>? Esta acción no se
-                              puede deshacer.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                            <AlertDialogAction
-                              onClick={handleDelete}
-                              className="bg-destructive text-white hover:bg-destructive/90"
+                        )}
+                        {canUnlink(material) && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-8 text-muted-foreground hover:text-destructive"
+                            title="Desvincular factura"
+                            onClick={() => handleUnlinkInvoice(material)}
+                          >
+                            <Unlink className="size-4" />
+                            <span className="sr-only">
+                              Desvincular factura
+                            </span>
+                          </Button>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-8"
+                          onClick={() => openEditDialog(material)}
+                        >
+                          <Edit className="size-4" />
+                          <span className="sr-only">Editar</span>
+                        </Button>
+                        <AlertDialog
+                          open={deletingMaterial?.id === material.id}
+                          onOpenChange={(open) => {
+                            if (!open) setDeletingMaterial(null);
+                          }}
+                        >
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-8 text-destructive hover:text-destructive"
+                              onClick={() => setDeletingMaterial(material)}
                             >
-                              Eliminar
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+                              <Trash2 className="size-4" />
+                              <span className="sr-only">Eliminar</span>
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>
+                                Eliminar material
+                              </AlertDialogTitle>
+                              <AlertDialogDescription>
+                                ¿Estás seguro de que deseas eliminar{' '}
+                                <strong>{material.description}</strong>? Esta
+                                acción no se puede deshacer.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                              <AlertDialogAction
+                                onClick={handleDelete}
+                                className="bg-destructive text-white hover:bg-destructive/90"
+                              >
+                                Eliminar
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         </div>
       )}
 
@@ -536,7 +750,9 @@ export default function MaterialsTab({ project, onRefresh }: MaterialsTabProps) 
                           min="0.01"
                           step="any"
                           {...field}
-                          onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
+                          onChange={(e) =>
+                            field.onChange(parseFloat(e.target.value) || 0)
+                          }
                         />
                       </FormControl>
                       <FormMessage />
@@ -580,7 +796,9 @@ export default function MaterialsTab({ project, onRefresh }: MaterialsTabProps) 
                         min="0"
                         step="any"
                         {...field}
-                        onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
+                        onChange={(e) =>
+                          field.onChange(parseFloat(e.target.value) || 0)
+                        }
                       />
                     </FormControl>
                     <FormMessage />
@@ -590,8 +808,12 @@ export default function MaterialsTab({ project, onRefresh }: MaterialsTabProps) 
               {/* Auto-calculated total preview */}
               <div className="rounded-md border bg-muted/50 px-4 py-2.5">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Costo Total</span>
-                  <span className="text-sm font-semibold">{formatMoney(totalPreview)}</span>
+                  <span className="text-sm text-muted-foreground">
+                    Costo Total
+                  </span>
+                  <span className="text-sm font-semibold">
+                    {formatMoney(totalPreview)}
+                  </span>
                 </div>
               </div>
               <FormField
@@ -637,12 +859,48 @@ export default function MaterialsTab({ project, onRefresh }: MaterialsTabProps) 
                   )}
                 />
               )}
+              {/* Factura Vinculada - only for YO or TRABAJADOR */}
+              {(purchasedBy === 'YO' || purchasedBy === 'TRABAJADOR') && (
+                <FormField
+                  control={form.control}
+                  name="invoiceId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Factura Vinculada</FormLabel>
+                      <Select
+                        onValueChange={field.onChange}
+                        value={field.value ?? '__none'}
+                      >
+                        <FormControl>
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder="Seleccionar factura" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="__none">
+                            Sin factura (pendiente)
+                          </SelectItem>
+                          {availableInvoices.map((inv) => (
+                            <SelectItem key={inv.id} value={inv.id}>
+                              #{inv.number} — {formatMoney(inv.amount)}{' '}
+                              <span className="text-muted-foreground">
+                                ({inv.status})
+                              </span>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
               <FormField
                 control={form.control}
                 name="invoiceNumber"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Factura N°</FormLabel>
+                    <FormLabel>Factura N° (referencia manual)</FormLabel>
                     <FormControl>
                       <Input placeholder="Ej: 0012-00345678" {...field} />
                     </FormControl>
@@ -657,7 +915,11 @@ export default function MaterialsTab({ project, onRefresh }: MaterialsTabProps) 
                   <FormItem>
                     <FormLabel>Notas</FormLabel>
                     <FormControl>
-                      <Textarea placeholder="Notas adicionales..." rows={3} {...field} />
+                      <Textarea
+                        placeholder="Notas adicionales..."
+                        rows={3}
+                        {...field}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -677,6 +939,51 @@ export default function MaterialsTab({ project, onRefresh }: MaterialsTabProps) 
               </DialogFooter>
             </form>
           </Form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Quick Link to Invoice Dialog */}
+      <Dialog open={linkDialogOpen} onOpenChange={setLinkDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Vincular material a factura</DialogTitle>
+            <DialogDescription>
+              Seleccioná la factura a la que querés vincular{' '}
+              <strong>{linkingMaterial?.description}</strong>.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Select value={linkInvoiceId} onValueChange={setLinkInvoiceId}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Seleccionar factura" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none">Sin factura (pendiente)</SelectItem>
+                {availableInvoices.map((inv) => (
+                  <SelectItem key={inv.id} value={inv.id}>
+                    #{inv.number} — {formatMoney(inv.amount)}{' '}
+                    <span className="text-muted-foreground">({inv.status})</span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setLinkDialogOpen(false)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              onClick={handleLinkInvoice}
+              disabled={linking || linkInvoiceId === '__none'}
+            >
+              {linking ? 'Vinculando...' : 'Vincular'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

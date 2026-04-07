@@ -16,10 +16,11 @@ export async function GET(
           orderBy: { createdAt: "desc" },
         },
         invoices: {
-          include: { payments: true },
+          include: { payments: true, materials: true },
           orderBy: { createdAt: "desc" },
         },
         materials: {
+          include: { invoice: { select: { id: true, number: true, status: true } } },
           orderBy: { createdAt: "desc" },
         },
         laborCosts: {

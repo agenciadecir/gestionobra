@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import type { Project, Invoice, Payment } from '@/lib/types';
+import type { Project, Invoice, Payment, Material } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -43,6 +43,8 @@ import {
   CreditCard,
   ChevronDown,
   ChevronUp,
+  Package,
+  AlertTriangle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -110,6 +112,18 @@ const methodLabels: Record<Payment['method'], string> = {
   OTRO: 'Otro',
 };
 
+const purchasedByLabels: Record<Material['purchasedBy'], string> = {
+  YO: 'Yo',
+  CLIENTE: 'Cliente',
+  TRABAJADOR: 'Trabajador',
+};
+
+const purchasedByBadgeClass: Record<Material['purchasedBy'], string> = {
+  YO: 'bg-sky-100 text-sky-800 dark:bg-sky-900/30 dark:text-sky-400',
+  CLIENTE: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400',
+  TRABAJADOR: 'bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-400',
+};
+
 export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
   const invoices = project.invoices ?? [];
 
@@ -171,6 +185,16 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
 
   const saldoPendiente = totalFacturado - totalCobrado;
 
+  const totalMaterialesEnFacturas = invoices
+    .filter((inv) => inv.status !== 'ANULADA')
+    .reduce((sum, inv) => {
+      const materialsTotal = (inv.materials ?? []).reduce(
+        (mSum, m) => mSum + m.totalCost,
+        0
+      );
+      return sum + materialsTotal;
+    }, 0);
+
   // Subtotals by concept
   const subtotalByConcept = (
     concept: Invoice['concept']
@@ -178,6 +202,10 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
     invoices
       .filter((inv) => inv.status !== 'ANULADA' && inv.concept === concept)
       .reduce((sum, inv) => sum + inv.amount, 0);
+
+  // ── Helpers ──
+  const getInvoiceMaterialsTotal = (invoice: Invoice) =>
+    (invoice.materials ?? []).reduce((sum, m) => sum + m.totalCost, 0);
 
   // ── Handlers ──
   const handleCreateInvoice = async () => {
@@ -330,7 +358,7 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
   return (
     <div className="space-y-6">
       {/* ── Summary row ── */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardContent className="flex items-center gap-3 pt-0">
             <div className="flex size-10 items-center justify-center rounded-lg bg-blue-100 text-blue-700">
@@ -361,6 +389,17 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
             <div>
               <p className="text-sm text-muted-foreground">Saldo Pendiente</p>
               <p className="text-lg font-bold">{formatMoney(saldoPendiente)}</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="flex items-center gap-3 pt-0">
+            <div className="flex size-10 items-center justify-center rounded-lg bg-orange-100 text-orange-700">
+              <Package className="size-5" />
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">Materiales en Facturas</p>
+              <p className="text-lg font-bold">{formatMoney(totalMaterialesEnFacturas)}</p>
             </div>
           </CardContent>
         </Card>
@@ -431,6 +470,12 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
               invoice.amount > 0 ? Math.min((totalPaid / invoice.amount) * 100, 100) : 0;
             const isExpanded = expandedInvoiceId === invoice.id;
             const isAnulada = invoice.status === 'ANULADA';
+            const materials = invoice.materials ?? [];
+            const materialsTotal = getInvoiceMaterialsTotal(invoice);
+            const hasMaterials = materials.length > 0;
+            const difference = invoice.amount - materialsTotal;
+            const isOverMaterials = materialsTotal > invoice.amount;
+            const isEqualAmount = Math.abs(difference) < 0.01;
 
             return (
               <Card key={invoice.id} className={isAnulada ? 'opacity-60' : ''}>
@@ -447,6 +492,12 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
                       <span className="text-sm text-muted-foreground">
                         {formatDate(invoice.date)}
                       </span>
+                      {hasMaterials && (
+                        <Badge variant="outline" className="gap-1">
+                          <Package className="size-3" />
+                          {materials.length} material{materials.length !== 1 ? 'es' : ''}
+                        </Badge>
+                      )}
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="text-lg font-semibold">
@@ -554,6 +605,102 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
                             </div>
                           );
                         })}
+                      </div>
+                    )}
+
+                    {/* ── Materiales vinculados section ── */}
+                    <div className="mt-3 rounded-lg border border-dashed border-orange-200 bg-orange-50/50 p-3 dark:border-orange-800/40 dark:bg-orange-950/20">
+                      <div className="mb-2 flex items-center gap-2">
+                        <Package className="size-4 text-orange-600 dark:text-orange-400" />
+                        <span className="text-sm font-semibold text-orange-700 dark:text-orange-300">
+                          Materiales vinculados
+                        </span>
+                      </div>
+
+                      {hasMaterials ? (
+                        <div className="space-y-2">
+                          {materials.map((material, idx) => (
+                            <div key={material.id}>
+                              <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="text-sm font-medium">
+                                    {material.description}
+                                  </span>
+                                  <span className="text-xs text-muted-foreground">
+                                    {material.quantity} × {material.unit}
+                                  </span>
+                                  <Badge
+                                    variant="secondary"
+                                    className={`text-xs ${purchasedByBadgeClass[material.purchasedBy]}`}
+                                  >
+                                    {purchasedByLabels[material.purchasedBy]}
+                                  </Badge>
+                                </div>
+                                <span className="text-sm font-semibold">
+                                  {formatMoney(material.totalCost)}
+                                </span>
+                              </div>
+                              {idx < materials.length - 1 && (
+                                <Separator className="my-1.5" />
+                              )}
+                            </div>
+                          ))}
+
+                          <Separator className="my-1.5" />
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-semibold text-orange-700 dark:text-orange-300">
+                              Total materiales
+                            </span>
+                            <span className="text-sm font-bold">
+                              {formatMoney(materialsTotal)}
+                            </span>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-sm italic text-muted-foreground">
+                          Sin materiales vinculados
+                        </p>
+                      )}
+                    </div>
+
+                    {/* ── Monto vs Materiales comparison ── */}
+                    {hasMaterials && (
+                      <div className="mt-2 rounded-lg border bg-muted/30 p-3">
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-muted-foreground">Monto facturado</span>
+                            <span className="font-semibold">{formatMoney(invoice.amount)}</span>
+                          </div>
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-muted-foreground">Materiales vinculados</span>
+                            <span className="font-semibold">{formatMoney(materialsTotal)}</span>
+                          </div>
+                          <Separator />
+                          <div className="flex items-center justify-between text-sm">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-medium">Diferencia (mano de obra/otros)</span>
+                              {isOverMaterials && (
+                                <AlertTriangle className="size-3.5 text-red-500" />
+                              )}
+                            </div>
+                            <span
+                              className={`font-bold ${
+                                isOverMaterials
+                                  ? 'text-red-600 dark:text-red-400'
+                                  : isEqualAmount
+                                    ? 'text-green-600 dark:text-green-400'
+                                    : 'text-foreground'
+                              }`}
+                            >
+                              {formatMoney(difference)}
+                            </span>
+                          </div>
+                          {isOverMaterials && (
+                            <p className="text-xs text-red-500">
+                              ⚠ Los materiales superan el monto facturado
+                            </p>
+                          )}
+                        </div>
                       </div>
                     )}
 

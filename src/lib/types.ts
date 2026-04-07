@@ -83,6 +83,7 @@ export type Invoice = {
   createdAt: string;
   updatedAt: string;
   payments?: Payment[];
+  materials?: Material[];
 };
 
 export type Payment = {
@@ -99,6 +100,7 @@ export type Payment = {
 export type Material = {
   id: string;
   projectId: string;
+  invoiceId?: string;
   description: string;
   quantity: number;
   unit: string;
@@ -110,6 +112,7 @@ export type Material = {
   notes?: string;
   createdAt: string;
   updatedAt: string;
+  invoice?: Invoice;
 };
 
 export type LaborCost = {

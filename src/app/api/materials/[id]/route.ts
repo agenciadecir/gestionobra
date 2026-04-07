@@ -31,8 +31,12 @@ export async function PUT(
         totalCost: quantity * unitCost,
         purchasedBy: body.purchasedBy !== undefined ? body.purchasedBy : undefined,
         reimbursed: body.reimbursed !== undefined ? body.reimbursed : undefined,
+        invoiceId: body.invoiceId !== undefined ? (body.invoiceId === null ? null : body.invoiceId) : undefined,
         invoiceNumber: body.invoiceNumber !== undefined ? body.invoiceNumber : undefined,
         notes: body.notes !== undefined ? body.notes : undefined,
+      },
+      include: {
+        invoice: { select: { id: true, number: true, status: true } },
       },
     });
 

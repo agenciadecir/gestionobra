@@ -26,6 +26,7 @@ import {
   Banknote,
   StickyNote,
   Clock,
+  AlertTriangle,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -277,6 +278,17 @@ export default function ProjectDetail() {
 
   const saldoPendienteTrabajadores = totalMoCompradaPorMi - totalPagadoTrabajadores;
 
+  // Materials pending to invoice
+  const materialesPendientesFactura =
+    project?.materials
+      ?.filter((m) => (m.purchasedBy === 'YO' || m.purchasedBy === 'TRABAJADOR') && !m.invoiceId)
+      .reduce((sum, m) => sum + m.totalCost, 0) ?? 0;
+
+  const materialesPendientesCount =
+    project?.materials?.filter(
+      (m) => (m.purchasedBy === 'YO' || m.purchasedBy === 'TRABAJADOR') && !m.invoiceId
+    ).length ?? 0;
+
   // Profit
   const gananciaBruta = totalCobrado - totalPagadoTrabajadores - totalMaterialesCompradosPorMi - totalReintegros;
 
@@ -364,6 +376,13 @@ export default function ProjectDetail() {
       icon: Package,
       color: 'text-amber-600',
       bg: 'bg-amber-50',
+    },
+    {
+      label: 'Materiales Sin Facturar',
+      value: fmtMoney(materialesPendientesFactura),
+      icon: AlertTriangle,
+      color: materialesPendientesFactura > 0 ? 'text-red-600' : 'text-green-600',
+      bg: materialesPendientesFactura > 0 ? 'bg-red-50' : 'bg-green-50',
     },
     {
       label: 'Ganancia Bruta',
@@ -634,7 +653,23 @@ export default function ProjectDetail() {
 
         {/* Resumen tab – summary grid */}
         <TabsContent value="resumen">
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {materialesPendientesFactura > 0 && (
+            <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-4 dark:border-amber-700 dark:bg-amber-950/40">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="mt-0.5 size-5 shrink-0 text-amber-600 dark:text-amber-400" />
+                <div>
+                  <p className="font-medium text-amber-800 dark:text-amber-300">
+                    {materialesPendientesCount} material{materialesPendientesCount !== 1 ? 'es' : ''} pendiente{materialesPendientesCount !== 1 ? 's' : ''} de facturar
+                  </p>
+                  <p className="mt-1 text-sm text-amber-700 dark:text-amber-400">
+                    Tenés <strong>{fmtMoney(materialesPendientesFactura)}</strong> en materiales comprados por vos o el trabajador que aún no están vinculados a ninguna factura.
+                    Andá a la pestaña &quot;Materiales&quot; para vincularlos.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
             {summaryCards.map((card) => {
               const Icon = card.icon;
               return (
