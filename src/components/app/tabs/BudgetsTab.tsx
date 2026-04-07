@@ -315,8 +315,9 @@ export default function BudgetsTab({ project, mode = 'full', onRefresh }: Budget
         const err = await res.json();
         toast.error(err.error ?? 'Error al crear el presupuesto');
       }
-    } catch {
-      toast.error('Error de conexion');
+    } catch (err) {
+      console.error('Error creating budget:', err);
+      toast.error('No se pudo conectar con el servidor. Intentá recargar la página.');
     } finally {
       setSaving(false);
     }
@@ -367,8 +368,9 @@ export default function BudgetsTab({ project, mode = 'full', onRefresh }: Budget
         const err = await res.json();
         toast.error(err.error ?? 'Error al actualizar el presupuesto');
       }
-    } catch {
-      toast.error('Error de conexion');
+    } catch (err) {
+      console.error('Error updating budget:', err);
+      toast.error('No se pudo conectar con el servidor. Intentá recargar la página.');
     } finally {
       setSaving(false);
     }
@@ -400,8 +402,9 @@ export default function BudgetsTab({ project, mode = 'full', onRefresh }: Budget
         const err = await res.json();
         toast.error(err.error ?? 'Error al eliminar el presupuesto');
       }
-    } catch {
-      toast.error('Error de conexion');
+    } catch (err) {
+      console.error('Error deleting budget:', err);
+      toast.error('No se pudo conectar con el servidor. Intentá recargar la página.');
     } finally {
       setSaving(false);
     }
@@ -436,8 +439,9 @@ export default function BudgetsTab({ project, mode = 'full', onRefresh }: Budget
         const err = await res.json();
         toast.error(err.error ?? 'Error al cambiar el estado');
       }
-    } catch {
-      toast.error('Error de conexion');
+    } catch (err) {
+      console.error('Error updating budget status:', err);
+      toast.error('No se pudo conectar con el servidor. Intentá recargar la página.');
     }
   };
 
