@@ -27,8 +27,23 @@ export async function GET(
             worker: {
               select: { id: true, name: true, specialty: true },
             },
+            workerPayments: {
+              orderBy: { date: "desc" },
+            },
           },
           orderBy: { createdAt: "desc" },
+        },
+        workerPayments: {
+          include: {
+            laborCost: {
+              include: {
+                worker: {
+                  select: { id: true, name: true, specialty: true },
+                },
+              },
+            },
+          },
+          orderBy: { date: "desc" },
         },
         tasks: {
           include: {

@@ -6,10 +6,11 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
 import type { Project, Material } from '@/lib/types';
-import { Plus, Trash2, Package, Edit } from 'lucide-react';
+import { Plus, Trash2, Package, Edit, CheckCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Card,
   CardContent,
@@ -67,17 +68,36 @@ interface MaterialsTabProps {
 
 const UNITS = ['un', 'm2', 'ml', 'kg', 'lt', 'mts', 'rollo'] as const;
 
+const purchasedByOptions = [
+  { value: 'YO', label: 'Yo' },
+  { value: 'CLIENTE', label: 'Cliente' },
+  { value: 'TRABAJADOR', label: 'Trabajador' },
+] as const;
+
 const materialSchema = z.object({
   description: z.string().min(1, 'La descripción es obligatoria'),
   quantity: z.number().min(0.01, 'La cantidad debe ser mayor a 0'),
   unit: z.string().min(1, 'Selecciona una unidad'),
   unitCost: z.number().min(0, 'El costo unitario debe ser mayor o igual a 0'),
-  purchasedBy: z.enum(['YO', 'CLIENTE']),
+  purchasedBy: z.enum(['YO', 'CLIENTE', 'TRABAJADOR']),
+  reimbursed: z.boolean(),
   invoiceNumber: z.string().optional(),
   notes: z.string().optional(),
 });
 
 type MaterialFormValues = z.infer<typeof materialSchema>;
+
+const purchasedByBadgeClass: Record<string, string> = {
+  YO: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400',
+  CLIENTE: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400',
+  TRABAJADOR: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400',
+};
+
+const purchasedByLabel: Record<string, string> = {
+  YO: 'Yo',
+  CLIENTE: 'Cliente',
+  TRABAJADOR: 'Trabajador',
+};
 
 function formatMoney(value: number): string {
   return new Intl.NumberFormat('es-AR', {
@@ -91,6 +111,7 @@ export default function MaterialsTab({ project, onRefresh }: MaterialsTabProps) 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingMaterial, setEditingMaterial] = useState<Material | null>(null);
   const [deletingMaterial, setDeletingMaterial] = useState<Material | null>(null);
+  const [markingReimbursed, setMarkingReimbursed] = useState<string | null>(null);
 
   const materials = useMemo(() => {
     const items = project.materials ?? [];
@@ -115,6 +136,22 @@ export default function MaterialsTab({ project, onRefresh }: MaterialsTabProps) 
     [materials]
   );
 
+  const totalCompradoPorTrabajador = useMemo(
+    () =>
+      materials
+        .filter((m) => m.purchasedBy === 'TRABAJADOR')
+        .reduce((sum, m) => sum + m.totalCost, 0),
+    [materials]
+  );
+
+  const totalPendienteReintegro = useMemo(
+    () =>
+      materials
+        .filter((m) => m.purchasedBy === 'TRABAJADOR' && !m.reimbursed)
+        .reduce((sum, m) => sum + m.totalCost, 0),
+    [materials]
+  );
+
   const form = useForm<MaterialFormValues>({
     resolver: zodResolver(materialSchema),
     defaultValues: {
@@ -123,6 +160,7 @@ export default function MaterialsTab({ project, onRefresh }: MaterialsTabProps) 
       unit: 'un',
       unitCost: 0,
       purchasedBy: 'YO',
+      reimbursed: false,
       invoiceNumber: '',
       notes: '',
     },
@@ -131,6 +169,8 @@ export default function MaterialsTab({ project, onRefresh }: MaterialsTabProps) 
   // Auto-calculate total cost preview from quantity * unitCost
   const quantity = form.watch('quantity');
   const unitCost = form.watch('unitCost');
+  const purchasedBy = form.watch('purchasedBy');
+  const reimbursed = form.watch('reimbursed');
   const totalPreview = (Number(quantity) || 0) * (Number(unitCost) || 0);
 
   // Reset form when dialog opens / closes
@@ -142,6 +182,7 @@ export default function MaterialsTab({ project, onRefresh }: MaterialsTabProps) 
       unit: 'un',
       unitCost: 0,
       purchasedBy: 'YO',
+      reimbursed: false,
       invoiceNumber: '',
       notes: '',
     });
@@ -156,6 +197,7 @@ export default function MaterialsTab({ project, onRefresh }: MaterialsTabProps) 
       unit: material.unit,
       unitCost: material.unitCost,
       purchasedBy: material.purchasedBy,
+      reimbursed: material.reimbursed,
       invoiceNumber: material.invoiceNumber ?? '',
       notes: material.notes ?? '',
     });
@@ -219,6 +261,28 @@ export default function MaterialsTab({ project, onRefresh }: MaterialsTabProps) 
     }
   };
 
+  const handleMarkReimbursed = async (materialId: string) => {
+    setMarkingReimbursed(materialId);
+    try {
+      const res = await fetch(`/api/materials/${materialId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reimbursed: true }),
+      });
+      if (res.ok) {
+        toast.success('Material marcado como reintegrado');
+        onRefresh();
+      } else {
+        const err = await res.json();
+        toast.error(err.error ?? 'Error al actualizar el material');
+      }
+    } catch {
+      toast.error('Error de conexión');
+    } finally {
+      setMarkingReimbursed(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -236,7 +300,7 @@ export default function MaterialsTab({ project, onRefresh }: MaterialsTabProps) 
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -264,11 +328,25 @@ export default function MaterialsTab({ project, onRefresh }: MaterialsTabProps) 
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Cantidad de ítems
+              Comprado por trabajador
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold">{materials.length}</p>
+            <p className="text-2xl font-bold text-orange-600 dark:text-orange-400">
+              {formatMoney(totalCompradoPorTrabajador)}
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Pendiente de reintegro
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold text-red-600 dark:text-red-400">
+              {formatMoney(totalPendienteReintegro)}
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -302,6 +380,7 @@ export default function MaterialsTab({ project, onRefresh }: MaterialsTabProps) 
                 <TableHead className="text-right">Costo Unit.</TableHead>
                 <TableHead className="text-right">Costo Total</TableHead>
                 <TableHead>Comprado por</TableHead>
+                <TableHead>Reintegro</TableHead>
                 <TableHead>Factura N°</TableHead>
                 <TableHead className="text-right">Acciones</TableHead>
               </TableRow>
@@ -323,20 +402,44 @@ export default function MaterialsTab({ project, onRefresh }: MaterialsTabProps) 
                   <TableCell>
                     <Badge
                       variant="secondary"
-                      className={
-                        material.purchasedBy === 'YO'
-                          ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
-                          : 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'
-                      }
+                      className={purchasedByBadgeClass[material.purchasedBy]}
                     >
-                      {material.purchasedBy === 'YO' ? 'Yo' : 'Cliente'}
+                      {purchasedByLabel[material.purchasedBy]}
                     </Badge>
+                  </TableCell>
+                  <TableCell>
+                    {material.purchasedBy === 'TRABAJADOR' ? (
+                      material.reimbursed ? (
+                        <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
+                          Reintegrado
+                        </Badge>
+                      ) : (
+                        <Badge className="bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">
+                          Pendiente
+                        </Badge>
+                      )
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     {material.invoiceNumber ?? '—'}
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-1">
+                      {material.purchasedBy === 'TRABAJADOR' && !material.reimbursed && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-8 text-green-600 hover:text-green-700"
+                          title="Marcar como Reintegrado"
+                          disabled={markingReimbursed === material.id}
+                          onClick={() => handleMarkReimbursed(material.id)}
+                        >
+                          <CheckCircle className="size-4" />
+                          <span className="sr-only">Marcar como Reintegrado</span>
+                        </Button>
+                      )}
                       <Button
                         variant="ghost"
                         size="icon"
@@ -504,14 +607,36 @@ export default function MaterialsTab({ project, onRefresh }: MaterialsTabProps) 
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="YO">Yo</SelectItem>
-                        <SelectItem value="CLIENTE">Cliente</SelectItem>
+                        {purchasedByOptions.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                     <FormMessage />
                   </FormItem>
                 )}
               />
+              {purchasedBy === 'TRABAJADOR' && (
+                <FormField
+                  control={form.control}
+                  name="reimbursed"
+                  render={({ field }) => (
+                    <FormItem className="flex items-center gap-3 space-y-0 rounded-md border p-3">
+                      <FormControl>
+                        <Checkbox
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                      <FormLabel className="cursor-pointer text-sm font-medium">
+                        Reintegrado
+                      </FormLabel>
+                    </FormItem>
+                  )}
+                />
+              )}
               <FormField
                 control={form.control}
                 name="invoiceNumber"

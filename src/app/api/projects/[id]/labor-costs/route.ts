@@ -14,6 +14,9 @@ export async function GET(
         worker: {
           select: { id: true, name: true, specialty: true },
         },
+        workerPayments: {
+          orderBy: { date: "desc" },
+        },
       },
       orderBy: { createdAt: "desc" },
     });
@@ -57,13 +60,14 @@ export async function POST(
         markupPercentage,
         markupAmount,
         finalPrice,
-        paidToWorker: body.paidToWorker || false,
-        paidDate: body.paidDate ? new Date(body.paidDate) : null,
         notes: body.notes || null,
       },
       include: {
         worker: {
           select: { id: true, name: true, specialty: true },
+        },
+        workerPayments: {
+          orderBy: { date: "desc" },
         },
       },
     });

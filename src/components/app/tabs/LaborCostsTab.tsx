@@ -2,21 +2,25 @@
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
-import type { Project, LaborCost, Worker } from '@/lib/types';
+import type { Project, LaborCost, Worker, WorkerPayment } from '@/lib/types';
 import {
   Plus,
   Trash2,
   HardHat,
   DollarSign,
-  CheckCircle,
-  Edit,
+  TrendingUp,
+  Wallet,
   CircleDot,
+  Edit,
+  ChevronDown,
+  Banknote,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Progress } from '@/components/ui/progress';
 import { Card, CardContent } from '@/components/ui/card';
 import {
   Table,
@@ -26,6 +30,12 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion';
 import {
   Dialog,
   DialogContent,
@@ -69,42 +79,108 @@ function formatARS(amount: number): string {
   }).format(amount);
 }
 
+function formatDate(dateStr: string): string {
+  return new Date(dateStr).toLocaleDateString('es-AR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
+}
+
 function todayISO(): string {
   return new Date().toISOString().split('T')[0];
 }
+
+const CONCEPT_CONFIG: Record<
+  WorkerPayment['concept'],
+  { label: string; className: string }
+> = {
+  ADELANTO: {
+    label: 'Adelanto',
+    className:
+      'bg-blue-100 text-blue-800 hover:bg-blue-100 dark:bg-blue-900/40 dark:text-blue-400',
+  },
+  PARCIAL: {
+    label: 'Parcial',
+    className:
+      'bg-gray-100 text-gray-800 hover:bg-gray-100 dark:bg-gray-900/40 dark:text-gray-400',
+  },
+  FINAL: {
+    label: 'Final',
+    className:
+      'bg-green-100 text-green-800 hover:bg-green-100 dark:bg-green-900/40 dark:text-green-400',
+  },
+  REINTEGRO_MATERIAL: {
+    label: 'Reintegro Material',
+    className:
+      'bg-amber-100 text-amber-800 hover:bg-amber-100 dark:bg-amber-900/40 dark:text-amber-400',
+  },
+};
+
+const METHOD_LABELS: Record<WorkerPayment['method'], string> = {
+  EFECTIVO: 'Efectivo',
+  TRANSFERENCIA: 'Transferencia',
+  CHEQUE: 'Cheque',
+  OTRO: 'Otro',
+};
 
 // ── Component ────────────────────────────────────────────────────────────────
 
 export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps) {
   const [laborCosts, setLaborCosts] = useState<LaborCost[]>(project.laborCosts ?? []);
   const [workers, setWorkers] = useState<Worker[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [workerPayments, setWorkerPayments] = useState<WorkerPayment[]>(
+    project.workerPayments ?? []
+  );
   const [workersLoading, setWorkersLoading] = useState(true);
+  const [paymentsLoading, setPaymentsLoading] = useState(true);
 
   // Dialogs
   const [formOpen, setFormOpen] = useState(false);
   const [editingCost, setEditingCost] = useState<LaborCost | null>(null);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteCostDialogOpen, setDeleteCostDialogOpen] = useState(false);
   const [deletingCost, setDeletingCost] = useState<LaborCost | null>(null);
-  const [paidDialogOpen, setPaidDialogOpen] = useState(false);
-  const [markingPaidCost, setMarkingPaidCost] = useState<LaborCost | null>(null);
+  const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
+  const [paymentCost, setPaymentCost] = useState<LaborCost | null>(null);
+  const [deletePaymentDialogOpen, setDeletePaymentDialogOpen] = useState(false);
+  const [deletingPayment, setDeletingPayment] = useState<WorkerPayment | null>(null);
 
-  // Form state (plain – no react-hook-form needed for this small form)
+  // Create/Edit form state
   const [formDescription, setFormDescription] = useState('');
   const [formWorkerId, setFormWorkerId] = useState('');
   const [formWorkerPrice, setFormWorkerPrice] = useState('');
   const [formMarkupPercentage, setFormMarkupPercentage] = useState('20');
   const [formNotes, setFormNotes] = useState('');
 
-  // Paid dialog date
-  const [paidDate, setPaidDate] = useState(todayISO());
+  // Payment form state
+  const [payAmount, setPayAmount] = useState('');
+  const [payConcept, setPayConcept] = useState<WorkerPayment['concept'] | ''>('');
+  const [payMethod, setPayMethod] = useState<WorkerPayment['method'] | ''>('');
+  const [payDate, setPayDate] = useState(todayISO());
+  const [payNotes, setPayNotes] = useState('');
 
-  // ── Derived values ─────────────────────────────────────────────────────────
+  // ── Derived preview for create/edit form ────────────────────────────────────
 
   const parsedWorkerPrice = parseFloat(formWorkerPrice) || 0;
   const parsedMarkup = parseFloat(formMarkupPercentage) || 0;
   const computedMarkupAmount = parsedWorkerPrice * parsedMarkup / 100;
   const computedFinalPrice = parsedWorkerPrice + computedMarkupAmount;
+
+  // ── Helpers per labor cost ──────────────────────────────────────────────────
+
+  const getPaymentsForCost = useCallback(
+    (costId: string) =>
+      workerPayments.filter((p) => p.laborCostId === costId),
+    [workerPayments]
+  );
+
+  const getTotalPaidForCost = useCallback(
+    (costId: string) =>
+      workerPayments
+        .filter((p) => p.laborCostId === costId)
+        .reduce((sum, p) => sum + p.amount, 0),
+    [workerPayments]
+  );
 
   // ── Fetch workers ──────────────────────────────────────────────────────────
 
@@ -123,31 +199,53 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
     }
   }, []);
 
+  // ── Fetch worker payments ──────────────────────────────────────────────────
+
+  const fetchWorkerPayments = useCallback(async () => {
+    setPaymentsLoading(true);
+    try {
+      const res = await fetch(`/api/projects/${project.id}/worker-payments`);
+      if (res.ok) {
+        const data = await res.json();
+        setWorkerPayments(data);
+      }
+    } catch {
+      // silent – we fall back to project.workerPayments
+    } finally {
+      setPaymentsLoading(false);
+    }
+  }, [project.id]);
+
+  // ── Init ───────────────────────────────────────────────────────────────────
+
   useEffect(() => {
     fetchWorkers();
-  }, [fetchWorkers]);
+    fetchWorkerPayments();
+  }, [fetchWorkers, fetchWorkerPayments]);
 
   // Keep laborCosts in sync when project prop refreshes
   useEffect(() => {
     setLaborCosts(project.laborCosts ?? []);
   }, [project.laborCosts]);
 
+  useEffect(() => {
+    setWorkerPayments(project.workerPayments ?? []);
+  }, [project.workerPayments]);
+
   // ── Summary calculations ───────────────────────────────────────────────────
 
   const summary = useMemo(() => {
-    const costs = laborCosts;
-    const totalPaidToWorkers = costs
-      .filter((c) => c.paidToWorker)
-      .reduce((sum, c) => sum + c.workerPrice, 0);
-    const totalPendingWorkers = costs
-      .filter((c) => !c.paidToWorker)
-      .reduce((sum, c) => sum + c.workerPrice, 0);
-    const totalMarkupGain = costs.reduce((sum, c) => sum + c.markupAmount, 0);
-    const totalBilled = costs.reduce((sum, c) => sum + c.finalPrice, 0);
-    return { totalPaidToWorkers, totalPendingWorkers, totalMarkupGain, totalBilled };
-  }, [laborCosts]);
+    const totalMOCliente = laborCosts.reduce((s, c) => s + c.finalPrice, 0);
+    const totalPagadoTrabajadores = workerPayments.reduce((s, p) => s + p.amount, 0);
+    const saldoPendiente = laborCosts.reduce(
+      (s, c) => s + (c.workerPrice - getTotalPaidForCost(c.id)),
+      0
+    );
+    const gananciaMarkup = laborCosts.reduce((s, c) => s + c.markupAmount, 0);
+    return { totalMOCliente, totalPagadoTrabajadores, saldoPendiente, gananciaMarkup };
+  }, [laborCosts, workerPayments, getTotalPaidForCost]);
 
-  // ── Reset form ─────────────────────────────────────────────────────────────
+  // ── Reset forms ────────────────────────────────────────────────────────────
 
   const resetForm = useCallback(() => {
     setFormDescription('');
@@ -156,6 +254,15 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
     setFormMarkupPercentage('20');
     setFormNotes('');
     setEditingCost(null);
+  }, []);
+
+  const resetPaymentForm = useCallback(() => {
+    setPayAmount('');
+    setPayConcept('');
+    setPayMethod('');
+    setPayDate(todayISO());
+    setPayNotes('');
+    setPaymentCost(null);
   }, []);
 
   // ── Open dialogs ───────────────────────────────────────────────────────────
@@ -175,18 +282,27 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
     setFormOpen(true);
   };
 
-  const openPaidDialog = (cost: LaborCost) => {
-    setMarkingPaidCost(cost);
-    setPaidDate(todayISO());
-    setPaidDialogOpen(true);
+  const openPaymentDialog = (cost: LaborCost) => {
+    setPaymentCost(cost);
+    setPayAmount('');
+    setPayConcept('');
+    setPayMethod('');
+    setPayDate(todayISO());
+    setPayNotes('');
+    setPaymentDialogOpen(true);
   };
 
-  const openDeleteDialog = (cost: LaborCost) => {
+  const openDeleteCostDialog = (cost: LaborCost) => {
     setDeletingCost(cost);
-    setDeleteDialogOpen(true);
+    setDeleteCostDialogOpen(true);
   };
 
-  // ── Submit (create / edit) ─────────────────────────────────────────────────
+  const openDeletePaymentDialog = (payment: WorkerPayment) => {
+    setDeletingPayment(payment);
+    setDeletePaymentDialogOpen(true);
+  };
+
+  // ── Submit create / edit labor cost ────────────────────────────────────────
 
   const handleSubmit = async () => {
     if (!formDescription.trim()) {
@@ -197,7 +313,7 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
       toast.error('El precio del trabajador es obligatorio');
       return;
     }
-    if (!formMarkupPercentage && formMarkupPercentage !== '0') {
+    if (formMarkupPercentage === '' || isNaN(parseFloat(formMarkupPercentage))) {
       toast.error('El porcentaje de markup es obligatorio');
       return;
     }
@@ -235,37 +351,55 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
     }
   };
 
-  // ── Mark as paid ───────────────────────────────────────────────────────────
+  // ── Submit worker payment ──────────────────────────────────────────────────
 
-  const handleMarkPaid = async () => {
-    if (!markingPaidCost) return;
+  const handlePaymentSubmit = async () => {
+    if (!paymentCost) return;
+    if (!payAmount || parseFloat(payAmount) <= 0) {
+      toast.error('El monto es obligatorio y debe ser mayor a 0');
+      return;
+    }
+    if (!payConcept) {
+      toast.error('Seleccioná un concepto de pago');
+      return;
+    }
+    if (!payMethod) {
+      toast.error('Seleccioná un método de pago');
+      return;
+    }
+
     try {
-      const res = await fetch(`/api/labor-costs/${markingPaidCost.id}`, {
-        method: 'PUT',
+      const res = await fetch(`/api/projects/${project.id}/worker-payments`, {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          paidToWorker: true,
-          paidDate: paidDate || todayISO(),
+          laborCostId: paymentCost.id,
+          amount: parseFloat(payAmount),
+          concept: payConcept,
+          method: payMethod,
+          date: payDate || todayISO(),
+          notes: payNotes.trim() || undefined,
         }),
       });
 
       if (res.ok) {
-        toast.success('Marcar como pagado');
-        setPaidDialogOpen(false);
-        setMarkingPaidCost(null);
+        toast.success('Pago registrado');
+        setPaymentDialogOpen(false);
+        resetPaymentForm();
         onRefresh();
+        fetchWorkerPayments();
       } else {
         const err = await res.json();
-        toast.error(err.error ?? 'Error al actualizar');
+        toast.error(err.error ?? 'Error al registrar el pago');
       }
     } catch {
       toast.error('Error de conexión');
     }
   };
 
-  // ── Delete ─────────────────────────────────────────────────────────────────
+  // ── Delete labor cost ──────────────────────────────────────────────────────
 
-  const handleDelete = async () => {
+  const handleDeleteCost = async () => {
     if (!deletingCost) return;
     try {
       const res = await fetch(`/api/labor-costs/${deletingCost.id}`, {
@@ -274,9 +408,10 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
 
       if (res.ok) {
         toast.success('Costo eliminado');
-        setDeleteDialogOpen(false);
+        setDeleteCostDialogOpen(false);
         setDeletingCost(null);
         onRefresh();
+        fetchWorkerPayments();
       } else {
         const err = await res.json();
         toast.error(err.error ?? 'Error al eliminar');
@@ -284,10 +419,43 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
     } catch {
       toast.error('Error de conexión');
     } finally {
-      setDeleteDialogOpen(false);
+      setDeleteCostDialogOpen(false);
       setDeletingCost(null);
     }
   };
+
+  // ── Delete worker payment ──────────────────────────────────────────────────
+
+  const handleDeletePayment = async () => {
+    if (!deletingPayment) return;
+    try {
+      const res = await fetch(`/api/worker-payments/${deletingPayment.id}`, {
+        method: 'DELETE',
+      });
+
+      if (res.ok) {
+        toast.success('Pago eliminado');
+        setDeletePaymentDialogOpen(false);
+        setDeletingPayment(null);
+        onRefresh();
+        fetchWorkerPayments();
+      } else {
+        const err = await res.json();
+        toast.error(err.error ?? 'Error al eliminar el pago');
+      }
+    } catch {
+      toast.error('Error de conexión');
+    } finally {
+      setDeletePaymentDialogOpen(false);
+      setDeletingPayment(null);
+    }
+  };
+
+  // ── Remaining amount for payment cost (for validation hints) ───────────────
+
+  const remainingForCost = paymentCost
+    ? Math.max(0, paymentCost.workerPrice - getTotalPaidForCost(paymentCost.id))
+    : 0;
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -300,7 +468,7 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
             Costos de Mano de Obra
           </h2>
           <p className="text-muted-foreground">
-            Gestión de costos laborales del proyecto
+            Gestión de costos laborales y pagos a trabajadores
           </p>
         </div>
         <Button onClick={openCreateDialog} className="gap-2">
@@ -309,47 +477,9 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
         </Button>
       </div>
 
-      {/* Summary cards */}
+      {/* ── Summary Cards ────────────────────────────────────────────────────── */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <div className="flex size-10 items-center justify-center rounded-lg bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400">
-                <CheckCircle className="size-5" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Total pagado a trabajadores</p>
-                <p className="text-lg font-semibold">{formatARS(summary.totalPaidToWorkers)}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <div className="flex size-10 items-center justify-center rounded-lg bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-400">
-                <CircleDot className="size-5" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Total pendiente a pagar</p>
-                <p className="text-lg font-semibold">{formatARS(summary.totalPendingWorkers)}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <div className="flex size-10 items-center justify-center rounded-lg bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400">
-                <DollarSign className="size-5" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Ganancia por markup</p>
-                <p className="text-lg font-semibold">{formatARS(summary.totalMarkupGain)}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        {/* Card 1: Total MO al cliente */}
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
@@ -357,15 +487,68 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
                 <DollarSign className="size-5" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Total facturado al cliente</p>
-                <p className="text-lg font-semibold">{formatARS(summary.totalBilled)}</p>
+                <p className="text-sm text-muted-foreground">Total MO al cliente</p>
+                <p className="text-lg font-semibold">
+                  {formatARS(summary.totalMOCliente)}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Card 2: Total pagado a trabajadores */}
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-3">
+              <div className="flex size-10 items-center justify-center rounded-lg bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400">
+                <Banknote className="size-5" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Total pagado a trabajadores</p>
+                <p className="text-lg font-semibold">
+                  {formatARS(summary.totalPagadoTrabajadores)}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Card 3: Saldo pendiente a trabajadores */}
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-3">
+              <div className="flex size-10 items-center justify-center rounded-lg bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-400">
+                <CircleDot className="size-5" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Saldo pendiente a trabajadores</p>
+                <p className={`text-lg font-semibold ${summary.saldoPendiente > 0 ? 'text-red-600 dark:text-red-400' : ''}`}>
+                  {formatARS(summary.saldoPendiente)}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Card 4: Ganancia por markup */}
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-3">
+              <div className="flex size-10 items-center justify-center rounded-lg bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400">
+                <TrendingUp className="size-5" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Ganancia por markup</p>
+                <p className="text-lg font-semibold">
+                  {formatARS(summary.gananciaMarkup)}
+                </p>
               </div>
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Table / Empty state */}
+      {/* ── Labor Costs Table (Accordion) ───────────────────────────────────── */}
       {laborCosts.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12 text-center">
@@ -384,102 +567,270 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
           </CardContent>
         </Card>
       ) : (
-        <div className="overflow-x-auto rounded-lg border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Descripción</TableHead>
-                <TableHead>Trabajador</TableHead>
-                <TableHead className="text-right">Precio Trabajador</TableHead>
-                <TableHead className="text-right">Markup %</TableHead>
-                <TableHead className="text-right">Valor Agregado</TableHead>
-                <TableHead className="text-right">Precio Final</TableHead>
-                <TableHead>Estado Pago</TableHead>
-                <TableHead className="text-right">Acciones</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {laborCosts.map((cost) => (
-                <TableRow key={cost.id}>
-                  <TableCell className="font-medium max-w-[200px] truncate">
-                    {cost.description}
-                  </TableCell>
-                  <TableCell>
-                    {cost.worker?.name ?? '-'}
-                  </TableCell>
-                  <TableCell className="text-right whitespace-nowrap">
-                    {formatARS(cost.workerPrice)}
-                  </TableCell>
-                  <TableCell className="text-right">{cost.markupPercentage}%</TableCell>
-                  <TableCell className="text-right whitespace-nowrap">
-                    {formatARS(cost.markupAmount)}
-                  </TableCell>
-                  <TableCell className="text-right whitespace-nowrap font-semibold">
-                    {formatARS(cost.finalPrice)}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex flex-col gap-0.5">
-                      {cost.paidToWorker ? (
-                        <Badge variant="default" className="bg-green-600 hover:bg-green-700 w-fit">
-                          Pagado
-                        </Badge>
-                      ) : (
-                        <Badge variant="secondary" className="bg-yellow-100 text-yellow-800 hover:bg-yellow-200 dark:bg-yellow-900/40 dark:text-yellow-400 w-fit">
-                          Pendiente
-                        </Badge>
-                      )}
-                      {cost.paidDate && (
-                        <span className="text-xs text-muted-foreground">
-                          {new Date(cost.paidDate).toLocaleDateString('es-AR')}
-                        </span>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-1">
-                      {!cost.paidToWorker && (
+        <>
+          {/* Column headers */}
+          <div className="hidden md:grid md:grid-cols-[2fr_1fr_1fr_0.7fr_1fr_1fr_1fr_1fr_auto] gap-2 px-4 py-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+            <span>Descripción</span>
+            <span className="text-right">Trabajador</span>
+            <span className="text-right">Precio Trabajador</span>
+            <span className="text-right">Markup %</span>
+            <span className="text-right">Ganancia</span>
+            <span className="text-right">Precio Final</span>
+            <span className="text-right">Pagado</span>
+            <span className="text-right">Pendiente</span>
+            <span className="text-right">Acciones</span>
+          </div>
+
+          <Accordion type="multiple" className="space-y-2">
+            {laborCosts.map((cost) => {
+              const payments = getPaymentsForCost(cost.id);
+              const totalPaid = getTotalPaidForCost(cost.id);
+              const pending = Math.max(0, cost.workerPrice - totalPaid);
+              const progressPct =
+                cost.workerPrice > 0
+                  ? Math.min(100, (totalPaid / cost.workerPrice) * 100)
+                  : 0;
+              const isFullyPaid = pending <= 0;
+
+              return (
+                <AccordionItem
+                  key={cost.id}
+                  value={cost.id}
+                  className="rounded-lg border bg-card"
+                >
+                  {/* ── Accordion Trigger (row) ──────────────────────────────── */}
+                  <AccordionTrigger className="px-4 py-3 hover:no-underline hover:bg-muted/30 rounded-t-lg">
+                    <div className="grid w-full grid-cols-2 md:grid-cols-[2fr_1fr_1fr_0.7fr_1fr_1fr_1fr_1fr_auto] gap-2 items-center text-sm text-left">
+                      {/* Description */}
+                      <span className="font-medium truncate">{cost.description}</span>
+
+                      {/* Worker */}
+                      <span className="text-right hidden md:block">
+                        {cost.worker?.name ?? '-'}
+                      </span>
+
+                      {/* Worker Price */}
+                      <span className="text-right whitespace-nowrap hidden md:block">
+                        {formatARS(cost.workerPrice)}
+                      </span>
+
+                      {/* Markup % */}
+                      <span className="text-right hidden md:block">
+                        {cost.markupPercentage}%
+                      </span>
+
+                      {/* Ganancia */}
+                      <span className="text-right whitespace-nowrap hidden md:block text-muted-foreground">
+                        {formatARS(cost.markupAmount)}
+                      </span>
+
+                      {/* Final Price */}
+                      <span className="text-right whitespace-nowrap hidden md:block font-semibold">
+                        {formatARS(cost.finalPrice)}
+                      </span>
+
+                      {/* Paid */}
+                      <span className="text-right whitespace-nowrap hidden md:block">
+                        {formatARS(totalPaid)}
+                      </span>
+
+                      {/* Pending */}
+                      <span className="text-right whitespace-nowrap hidden md:block">
+                        {isFullyPaid ? (
+                          <Badge
+                            variant="secondary"
+                            className="bg-green-100 text-green-800 hover:bg-green-100 dark:bg-green-900/40 dark:text-green-400"
+                          >
+                            Liquidado
+                          </Badge>
+                        ) : (
+                          <span className="text-red-600 dark:text-red-400 font-medium">
+                            {formatARS(pending)}
+                          </span>
+                        )}
+                      </span>
+
+                      {/* Actions */}
+                      <div className="hidden md:flex justify-end gap-1">
                         <Button
                           variant="ghost"
                           size="icon"
                           className="size-8 text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-900/20"
-                          onClick={() => openPaidDialog(cost)}
-                          title="Marcar como pagado"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openPaymentDialog(cost);
+                          }}
+                          title="Registrar Pago"
                         >
-                          <CheckCircle className="size-4" />
+                          <Banknote className="size-4" />
                         </Button>
-                      )}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-8"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openEditDialog(cost);
+                          }}
+                          title="Editar"
+                        >
+                          <Edit className="size-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-8 text-destructive hover:text-destructive"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openDeleteCostDialog(cost);
+                          }}
+                          title="Eliminar"
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  </AccordionTrigger>
+
+                  {/* ── Accordion Content (expanded) ──────────────────────────── */}
+                  <AccordionContent className="px-4 pb-4">
+                    {/* Mobile-only details */}
+                    <div className="md:hidden grid grid-cols-2 gap-2 text-sm mb-4">
+                      <div>
+                        <span className="text-muted-foreground">Trabajador: </span>
+                        <span className="font-medium">{cost.worker?.name ?? '-'}</span>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Precio Trabajador: </span>
+                        <span className="font-medium">{formatARS(cost.workerPrice)}</span>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Markup: </span>
+                        <span className="font-medium">{cost.markupPercentage}% ({formatARS(cost.markupAmount)})</span>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Precio Final: </span>
+                        <span className="font-semibold">{formatARS(cost.finalPrice)}</span>
+                      </div>
+                    </div>
+
+                    {/* Mobile actions */}
+                    <div className="md:hidden flex gap-2 mb-4">
                       <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-8"
-                        onClick={() => openEditDialog(cost)}
-                        title="Editar"
+                        size="sm"
+                        variant="outline"
+                        className="gap-1.5 text-green-600 border-green-300 hover:bg-green-50 dark:border-green-800 dark:hover:bg-green-900/20"
+                        onClick={() => openPaymentDialog(cost)}
                       >
-                        <Edit className="size-4" />
+                        <Banknote className="size-3.5" />
+                        Registrar Pago
                       </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-8 text-destructive hover:text-destructive"
-                        onClick={() => openDeleteDialog(cost)}
-                        title="Eliminar"
-                      >
-                        <Trash2 className="size-4" />
+                      <Button size="sm" variant="outline" className="gap-1.5" onClick={() => openEditDialog(cost)}>
+                        <Edit className="size-3.5" />
+                        Editar
+                      </Button>
+                      <Button size="sm" variant="outline" className="gap-1.5 text-destructive border-destructive/30 hover:bg-destructive/5" onClick={() => openDeleteCostDialog(cost)}>
+                        <Trash2 className="size-3.5" />
+                        Eliminar
                       </Button>
                     </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+
+                    {/* Progress bar */}
+                    <div className="space-y-2 mb-4">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">
+                          Progreso de pago: {formatARS(totalPaid)} / {formatARS(cost.workerPrice)}
+                        </span>
+                        <span className={`font-medium ${isFullyPaid ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground'}`}>
+                          {progressPct.toFixed(1)}%
+                        </span>
+                      </div>
+                      <Progress
+                        value={progressPct}
+                        className={`h-3 ${isFullyPaid ? '[&>div]:bg-green-500' : ''}`}
+                      />
+                    </div>
+
+                    {/* Payment History */}
+                    <div>
+                      <h4 className="text-sm font-semibold mb-2">Historial de Pagos</h4>
+                      {payments.length === 0 ? (
+                        <p className="text-sm text-muted-foreground italic">
+                          No hay pagos registrados para este costo.
+                        </p>
+                      ) : (
+                        <div className="overflow-x-auto rounded-lg border">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Fecha</TableHead>
+                                <TableHead className="text-right">Monto</TableHead>
+                                <TableHead>Concepto</TableHead>
+                                <TableHead>Método</TableHead>
+                                <TableHead>Notas</TableHead>
+                                <TableHead className="text-right">Acciones</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {payments.map((payment) => {
+                                const cfg = CONCEPT_CONFIG[payment.concept];
+                                return (
+                                  <TableRow key={payment.id}>
+                                    <TableCell className="whitespace-nowrap">
+                                      {formatDate(payment.date)}
+                                    </TableCell>
+                                    <TableCell className="text-right font-medium whitespace-nowrap">
+                                      {formatARS(payment.amount)}
+                                    </TableCell>
+                                    <TableCell>
+                                      <Badge
+                                        variant="secondary"
+                                        className={cfg.className}
+                                      >
+                                        {cfg.label}
+                                      </Badge>
+                                    </TableCell>
+                                    <TableCell>
+                                      {METHOD_LABELS[payment.method]}
+                                    </TableCell>
+                                    <TableCell className="max-w-[200px] truncate text-muted-foreground">
+                                      {payment.notes || '-'}
+                                    </TableCell>
+                                    <TableCell className="text-right">
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="size-7 text-destructive hover:text-destructive"
+                                        onClick={() => openDeletePaymentDialog(payment)}
+                                        title="Eliminar pago"
+                                      >
+                                        <Trash2 className="size-3.5" />
+                                      </Button>
+                                    </TableCell>
+                                  </TableRow>
+                                );
+                              })}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      )}
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+              );
+            })}
+          </Accordion>
+        </>
       )}
 
-      {/* Create / Edit Dialog */}
-      <Dialog open={formOpen} onOpenChange={(open) => {
-        setFormOpen(open);
-        if (!open) resetForm();
-      }}>
+      {/* ── Create / Edit Labor Cost Dialog ──────────────────────────────────── */}
+      <Dialog
+        open={formOpen}
+        onOpenChange={(open) => {
+          setFormOpen(open);
+          if (!open) resetForm();
+        }}
+      >
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>
@@ -516,7 +867,8 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
                   <SelectContent>
                     {workers.map((w) => (
                       <SelectItem key={w.id} value={w.id}>
-                        {w.name}{w.specialty ? ` – ${w.specialty}` : ''}
+                        {w.name}
+                        {w.specialty ? ` – ${w.specialty}` : ''}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -556,8 +908,10 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
             {(parsedWorkerPrice > 0 || parsedMarkup > 0) && (
               <div className="rounded-lg border bg-muted/50 p-3 space-y-1.5 text-sm">
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Valor agregado:</span>
-                  <span className="font-medium">{formatARS(computedMarkupAmount)}</span>
+                  <span className="text-muted-foreground">Ganancia (markup):</span>
+                  <span className="font-medium">
+                    {formatARS(computedMarkupAmount)}
+                  </span>
                 </div>
                 <div className="flex justify-between text-base">
                   <span className="font-medium">Precio final:</span>
@@ -579,10 +933,14 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
             </div>
           </div>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => {
-              setFormOpen(false);
-              resetForm();
-            }}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setFormOpen(false);
+                resetForm();
+              }}
+            >
               Cancelar
             </Button>
             <Button type="button" onClick={handleSubmit}>
@@ -592,53 +950,202 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
         </DialogContent>
       </Dialog>
 
-      {/* Mark as Paid Dialog */}
-      <Dialog open={paidDialogOpen} onOpenChange={setPaidDialogOpen}>
-        <DialogContent className="max-w-sm">
+      {/* ── Register Worker Payment Dialog ───────────────────────────────────── */}
+      <Dialog
+        open={paymentDialogOpen}
+        onOpenChange={(open) => {
+          setPaymentDialogOpen(open);
+          if (!open) resetPaymentForm();
+        }}
+      >
+        <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Marcar como Pagado</DialogTitle>
+            <DialogTitle>Registrar Pago</DialogTitle>
             <DialogDescription>
-              Se registrará el pago de <strong>{formatARS(markingPaidCost?.workerPrice ?? 0)}</strong> a{' '}
-              <strong>{markingPaidCost?.worker?.name ?? 'trabajador'}</strong>.
+              Registrar pago para{' '}
+              <strong>{paymentCost?.description}</strong>
+              {paymentCost?.worker?.name
+                ? ` – ${paymentCost.worker.name}`
+                : ''}
+              .
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
+            {/* Remaining info */}
+            <div className="rounded-lg border bg-muted/50 p-3 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Precio trabajador:</span>
+                <span className="font-medium">
+                  {formatARS(paymentCost?.workerPrice ?? 0)}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Ya pagado:</span>
+                <span className="font-medium">
+                  {formatARS(
+                    paymentCost
+                      ? getTotalPaidForCost(paymentCost.id)
+                      : 0
+                  )}
+                </span>
+              </div>
+              <div className="flex justify-between font-semibold">
+                <span>Saldo pendiente:</span>
+                <span
+                  className={
+                    remainingForCost > 0
+                      ? 'text-red-600 dark:text-red-400'
+                      : 'text-green-600 dark:text-green-400'
+                  }
+                >
+                  {formatARS(remainingForCost)}
+                </span>
+              </div>
+            </div>
+
+            {/* Amount */}
             <div className="space-y-2">
-              <Label htmlFor="paid-date">Fecha de pago</Label>
+              <Label htmlFor="pay-amount">Monto *</Label>
               <Input
-                id="paid-date"
+                id="pay-amount"
+                type="number"
+                step="0.01"
+                min="0"
+                placeholder="0.00"
+                value={payAmount}
+                onChange={(e) => setPayAmount(e.target.value)}
+              />
+            </div>
+
+            {/* Concept */}
+            <div className="space-y-2">
+              <Label htmlFor="pay-concept">Concepto *</Label>
+              <Select
+                value={payConcept}
+                onValueChange={(v) =>
+                  setPayConcept(v as WorkerPayment['concept'])
+                }
+              >
+                <SelectTrigger id="pay-concept" className="w-full">
+                  <SelectValue placeholder="Seleccionar concepto" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ADELANTO">Adelanto</SelectItem>
+                  <SelectItem value="PARCIAL">Parcial</SelectItem>
+                  <SelectItem value="FINAL">Final</SelectItem>
+                  <SelectItem value="REINTEGRO_MATERIAL">
+                    Reintegro Material
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Method */}
+            <div className="space-y-2">
+              <Label htmlFor="pay-method">Método de pago *</Label>
+              <Select
+                value={payMethod}
+                onValueChange={(v) =>
+                  setPayMethod(v as WorkerPayment['method'])
+                }
+              >
+                <SelectTrigger id="pay-method" className="w-full">
+                  <SelectValue placeholder="Seleccionar método" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="EFECTIVO">Efectivo</SelectItem>
+                  <SelectItem value="TRANSFERENCIA">Transferencia</SelectItem>
+                  <SelectItem value="CHEQUE">Cheque</SelectItem>
+                  <SelectItem value="OTRO">Otro</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Date */}
+            <div className="space-y-2">
+              <Label htmlFor="pay-date">Fecha</Label>
+              <Input
+                id="pay-date"
                 type="date"
-                value={paidDate}
-                onChange={(e) => setPaidDate(e.target.value)}
+                value={payDate}
+                onChange={(e) => setPayDate(e.target.value)}
+              />
+            </div>
+
+            {/* Notes */}
+            <div className="space-y-2">
+              <Label htmlFor="pay-notes">Notas</Label>
+              <Textarea
+                id="pay-notes"
+                placeholder="Notas del pago..."
+                rows={2}
+                value={payNotes}
+                onChange={(e) => setPayNotes(e.target.value)}
               />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setPaidDialogOpen(false)}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setPaymentDialogOpen(false);
+                resetPaymentForm();
+              }}
+            >
               Cancelar
             </Button>
-            <Button onClick={handleMarkPaid} className="gap-2">
-              <CheckCircle className="size-4" />
-              Confirmar Pago
+            <Button onClick={handlePaymentSubmit} className="gap-2">
+              <Banknote className="size-4" />
+              Registrar Pago
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirmation Dialog */}
-      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+      {/* ── Delete Labor Cost Confirmation ───────────────────────────────────── */}
+      <AlertDialog open={deleteCostDialogOpen} onOpenChange={setDeleteCostDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Eliminar Costo</AlertDialogTitle>
             <AlertDialogDescription>
               ¿Estás seguro de que deseas eliminar{' '}
-              <strong>{deletingCost?.description}</strong>? Esta acción no se puede deshacer.
+              <strong>{deletingCost?.description}</strong>? Esta acción no se
+              puede deshacer y se eliminarán también todos los pagos asociados.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction
-              onClick={handleDelete}
+              onClick={handleDeleteCost}
+              className="bg-destructive text-white hover:bg-destructive/90"
+            >
+              Eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* ── Delete Worker Payment Confirmation ───────────────────────────────── */}
+      <AlertDialog
+        open={deletePaymentDialogOpen}
+        onOpenChange={setDeletePaymentDialogOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminar Pago</AlertDialogTitle>
+            <AlertDialogDescription>
+              ¿Estás seguro de que deseas eliminar el pago de{' '}
+              <strong>{formatARS(deletingPayment?.amount ?? 0)}</strong>
+              {deletingPayment?.laborCost?.worker?.name
+                ? ` a ${deletingPayment.laborCost.worker.name}`
+                : ''}
+              ? Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeletePayment}
               className="bg-destructive text-white hover:bg-destructive/90"
             >
               Eliminar

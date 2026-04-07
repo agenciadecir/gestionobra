@@ -25,6 +25,7 @@ import {
   Wallet,
   Banknote,
   StickyNote,
+  Clock,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -216,11 +217,31 @@ export default function ProjectDetail() {
 
   // ── Summary calculations ─────────────────────────────────────────────────
 
+  // From budgets (approved)
   const totalPresupuestado =
     project?.budgets
       ?.filter((b) => b.status === 'APROBADO')
       .reduce((sum, b) => sum + b.totalAmount, 0) ?? 0;
 
+  const totalMoPresupuestada =
+    project?.budgets
+      ?.filter((b) => b.status === 'APROBADO')
+      .reduce(
+        (sum, b) =>
+          sum + (b.items?.filter((i) => i.category === 'MANO_DE_OBRA').reduce((s, i) => s + i.totalPrice, 0) ?? 0),
+        0
+      ) ?? 0;
+
+  const totalMaterialesPresupuestados =
+    project?.budgets
+      ?.filter((b) => b.status === 'APROBADO')
+      .reduce(
+        (sum, b) =>
+          sum + (b.items?.filter((i) => i.category === 'MATERIAL').reduce((s, i) => s + i.totalPrice, 0) ?? 0),
+        0
+      ) ?? 0;
+
+  // From invoices (non-ANULADA)
   const totalFacturado =
     project?.invoices
       ?.filter((i) => i.status !== 'ANULADA')
@@ -234,19 +255,30 @@ export default function ProjectDetail() {
 
   const saldoPendiente = totalFacturado - totalCobrado;
 
-  const totalMateriales =
+  // My costs
+  const totalMoCompradaPorMi =
+    project?.laborCosts?.reduce((sum, l) => sum + l.workerPrice, 0) ?? 0;
+
+  const totalMarkupGanancia =
+    project?.laborCosts?.reduce((sum, l) => sum + l.markupAmount, 0) ?? 0;
+
+  const totalMaterialesCompradosPorMi =
     project?.materials
       ?.filter((m) => m.purchasedBy === 'YO')
       .reduce((sum, m) => sum + m.totalCost, 0) ?? 0;
 
-  const totalCostosMO =
-    project?.laborCosts?.reduce((sum, l) => sum + l.finalPrice, 0) ?? 0;
+  const totalReintegros =
+    project?.materials
+      ?.filter((m) => m.purchasedBy === 'TRABAJADOR' && m.reimbursed)
+      .reduce((sum, m) => sum + m.totalCost, 0) ?? 0;
 
-  const gananciaEstimada =
-    totalPresupuestado - totalMateriales - totalCostosMO;
+  const totalPagadoTrabajadores =
+    project?.workerPayments?.reduce((sum, wp) => sum + wp.amount, 0) ?? 0;
 
-  const totalTasks = project?.tasks?.length ?? 0;
-  const completedTasks = project?.tasks?.filter((t) => t.status === 'COMPLETADA').length ?? 0;
+  const saldoPendienteTrabajadores = totalMoCompradaPorMi - totalPagadoTrabajadores;
+
+  // Profit
+  const gananciaBruta = totalCobrado - totalPagadoTrabajadores - totalMaterialesCompradosPorMi - totalReintegros;
 
   // ── Loading skeleton ─────────────────────────────────────────────────────
 
@@ -282,6 +314,7 @@ export default function ProjectDetail() {
   // ── Summary cards data ───────────────────────────────────────────────────
 
   const summaryCards = [
+    // Row 1 – Ingresos
     {
       label: 'Total Presupuestado',
       value: fmtMoney(totalPresupuestado),
@@ -304,39 +337,40 @@ export default function ProjectDetail() {
       bg: 'bg-green-50',
     },
     {
-      label: 'Saldo Pendiente',
+      label: 'Saldo Pendiente Cliente',
       value: fmtMoney(saldoPendiente),
       icon: Wallet,
       color: saldoPendiente > 0 ? 'text-red-600' : 'text-green-600',
       bg: saldoPendiente > 0 ? 'bg-red-50' : 'bg-green-50',
     },
+    // Row 2 – Costos y Ganancia
     {
-      label: 'Total Materiales',
-      value: fmtMoney(totalMateriales),
-      icon: Package,
-      color: 'text-amber-600',
-      bg: 'bg-amber-50',
-    },
-    {
-      label: 'Total Costos MO',
-      value: fmtMoney(totalCostosMO),
+      label: 'Pagado a Trabajadores',
+      value: fmtMoney(totalPagadoTrabajadores),
       icon: HardHat,
       color: 'text-orange-600',
       bg: 'bg-orange-50',
     },
     {
-      label: 'Ganancia Estimada',
-      value: fmtMoney(gananciaEstimada),
-      icon: TrendingUp,
-      color: gananciaEstimada >= 0 ? 'text-emerald-600' : 'text-red-600',
-      bg: gananciaEstimada >= 0 ? 'bg-emerald-50' : 'bg-red-50',
+      label: 'Pendiente a Trabajadores',
+      value: fmtMoney(saldoPendienteTrabajadores),
+      icon: Clock,
+      color: saldoPendienteTrabajadores > 0 ? 'text-red-600' : 'text-green-600',
+      bg: saldoPendienteTrabajadores > 0 ? 'bg-red-50' : 'bg-green-50',
     },
     {
-      label: 'Tareas Completadas',
-      value: `${completedTasks} de ${totalTasks}`,
-      icon: CheckSquare,
-      color: 'text-indigo-600',
-      bg: 'bg-indigo-50',
+      label: 'Gastado en Materiales',
+      value: fmtMoney(totalMaterialesCompradosPorMi + totalReintegros),
+      icon: Package,
+      color: 'text-amber-600',
+      bg: 'bg-amber-50',
+    },
+    {
+      label: 'Ganancia Bruta',
+      value: fmtMoney(gananciaBruta),
+      icon: TrendingUp,
+      color: gananciaBruta >= 0 ? 'text-emerald-600' : 'text-red-600',
+      bg: gananciaBruta >= 0 ? 'bg-emerald-50' : 'bg-red-50',
     },
   ];
 

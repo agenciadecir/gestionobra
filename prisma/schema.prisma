@@ -34,8 +34,8 @@ model Worker {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  laborCosts LaborCost[]
-  tasks      Task[]
+  laborCosts    LaborCost[]
+  tasks         Task[]
 }
 
 // ==================== OBRAS ====================
@@ -53,12 +53,13 @@ model Project {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  client     Client      @relation(fields: [clientId], references: [id])
-  budgets    Budget[]
-  invoices   Invoice[]
-  materials  Material[]
-  laborCosts LaborCost[]
-  tasks      Task[]
+  client         Client          @relation(fields: [clientId], references: [id])
+  budgets        Budget[]
+  invoices       Invoice[]
+  materials      Material[]
+  laborCosts     LaborCost[]
+  workerPayments WorkerPayment[]
+  tasks          Task[]
 }
 
 // ==================== PRESUPUESTOS ====================
@@ -91,7 +92,7 @@ model BudgetItem {
   budget Budget @relation(fields: [budgetId], references: [id], onDelete: Cascade)
 }
 
-// ==================== FACTURAS ====================
+// ==================== FACTURAS (al cliente) ====================
 
 model Invoice {
   id        String   @id @default(cuid())
@@ -99,6 +100,7 @@ model Invoice {
   number    String
   date      DateTime @default(now())
   amount    Float    @default(0)
+  concept   String   @default("MIXTO") // MANO_DE_OBRA | MATERIAL | MIXTO
   status    String   @default("PENDIENTE") // PENDIENTE | PAGADA_PARCIALMENTE | PAGADA | ANULADA
   notes     String?
   createdAt DateTime @default(now())
@@ -108,7 +110,7 @@ model Invoice {
   payments Payment[]
 }
 
-// ==================== PAGOS ====================
+// ==================== PAGOS DEL CLIENTE ====================
 
 model Payment {
   id         String   @id @default(cuid())
@@ -133,7 +135,8 @@ model Material {
   unit          String   @default("un")
   unitCost      Float    @default(0)
   totalCost     Float    @default(0)
-  purchasedBy   String   @default("YO") // YO | CLIENTE
+  purchasedBy   String   @default("YO") // YO | CLIENTE | TRABAJADOR
+  reimbursed    Boolean  @default(false) // Si TRABAJADOR compró, ¿ya le reembolsé?
   invoiceNumber String?
   notes         String?
   createdAt     DateTime @default(now())
@@ -145,38 +148,55 @@ model Material {
 // ==================== COSTOS MANO DE OBRA ====================
 
 model LaborCost {
-  id               String    @id @default(cuid())
+  id               String   @id @default(cuid())
   projectId        String
   workerId         String
   description      String
-  workerPrice      Float     @default(0) // Precio que cobra el trabajador
-  markupPercentage Float     @default(0) // Porcentaje de ganancia
-  markupAmount     Float     @default(0) // Valor agregado
-  finalPrice       Float     @default(0) // Precio final (workerPrice + markupAmount)
-  paidToWorker     Boolean   @default(false)
-  paidDate         DateTime?
+  workerPrice      Float    @default(0) // Precio que cobra el trabajador
+  markupPercentage Float    @default(0) // Porcentaje de ganancia
+  markupAmount     Float    @default(0) // Valor agregado (mi ganancia)
+  finalPrice       Float    @default(0) // Precio final al cliente (workerPrice + markupAmount)
   notes            String?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
-  project Project @relation(fields: [projectId], references: [id])
-  worker  Worker  @relation(fields: [workerId], references: [id])
+  project        Project         @relation(fields: [projectId], references: [id])
+  worker         Worker          @relation(fields: [workerId], references: [id])
+  workerPayments WorkerPayment[]
+}
+
+// ==================== PAGOS AL TRABAJADOR ====================
+
+model WorkerPayment {
+  id         String   @id @default(cuid())
+  projectId  String
+  laborCostId String
+  date       DateTime @default(now())
+  amount     Float
+  concept    String   @default("PARCIAL") // ADELANTO | PARCIAL | FINAL | REINTEGRO_MATERIAL
+  method     String   @default("EFECTIVO") // EFECTIVO | TRANSFERENCIA | CHEQUE | OTRO
+  notes      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  project   Project    @relation(fields: [projectId], references: [id])
+  laborCost LaborCost  @relation(fields: [laborCostId], references: [id])
 }
 
 // ==================== TAREAS ====================
 
 model Task {
-  id          String    @id @default(cuid())
-  projectId   String
-  title       String
-  description String?
-  status      String    @default("PENDIENTE") // PENDIENTE | EN_CURSO | COMPLETADA
-  priority    String    @default("MEDIA") // BAJA | MEDIA | ALTA | URGENTE
-  workerId    String?
-  dueDate     DateTime?
+  id            String    @id @default(cuid())
+  projectId     String
+  title         String
+  description   String?
+  status        String    @default("PENDIENTE") // PENDIENTE | EN_CURSO | COMPLETADA
+  priority      String    @default("MEDIA") // BAJA | MEDIA | ALTA | URGENTE
+  workerId      String?
+  dueDate       DateTime?
   completedDate DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   project Project @relation(fields: [projectId], references: [id])
   worker  Worker? @relation(fields: [workerId], references: [id])

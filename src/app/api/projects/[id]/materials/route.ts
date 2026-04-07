@@ -50,6 +50,7 @@ export async function POST(
         unitCost,
         totalCost: quantity * unitCost,
         purchasedBy: body.purchasedBy || "YO",
+        reimbursed: body.reimbursed || false,
         invoiceNumber: body.invoiceNumber || null,
         notes: body.notes || null,
       },

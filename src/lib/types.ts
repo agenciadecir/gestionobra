@@ -42,6 +42,7 @@ export type Project = {
   invoices?: Invoice[];
   materials?: Material[];
   laborCosts?: LaborCost[];
+  workerPayments?: WorkerPayment[];
   tasks?: Task[];
   _count?: { budgets: number; invoices: number; tasks: number };
 };
@@ -76,6 +77,7 @@ export type Invoice = {
   number: string;
   date: string;
   amount: number;
+  concept: 'MANO_DE_OBRA' | 'MATERIAL' | 'MIXTO';
   status: 'PENDIENTE' | 'PAGADA_PARCIALMENTE' | 'PAGADA' | 'ANULADA';
   notes?: string;
   createdAt: string;
@@ -102,7 +104,8 @@ export type Material = {
   unit: string;
   unitCost: number;
   totalCost: number;
-  purchasedBy: 'YO' | 'CLIENTE';
+  purchasedBy: 'YO' | 'CLIENTE' | 'TRABAJADOR';
+  reimbursed: boolean;
   invoiceNumber?: string;
   notes?: string;
   createdAt: string;
@@ -118,12 +121,25 @@ export type LaborCost = {
   markupPercentage: number;
   markupAmount: number;
   finalPrice: number;
-  paidToWorker: boolean;
-  paidDate?: string;
   notes?: string;
   createdAt: string;
   updatedAt: string;
   worker?: Worker;
+  workerPayments?: WorkerPayment[];
+};
+
+export type WorkerPayment = {
+  id: string;
+  projectId: string;
+  laborCostId: string;
+  date: string;
+  amount: number;
+  concept: 'ADELANTO' | 'PARCIAL' | 'FINAL' | 'REINTEGRO_MATERIAL';
+  method: 'EFECTIVO' | 'TRANSFERENCIA' | 'CHEQUE' | 'OTRO';
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+  laborCost?: LaborCost;
 };
 
 export type Task = {

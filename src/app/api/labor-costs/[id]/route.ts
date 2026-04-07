@@ -37,18 +37,14 @@ export async function PUT(
         markupPercentage,
         markupAmount,
         finalPrice,
-        paidToWorker:
-          body.paidToWorker !== undefined ? body.paidToWorker : undefined,
-        paidDate: body.paidDate
-          ? new Date(body.paidDate)
-          : body.paidToWorker === false
-            ? null
-            : undefined,
         notes: body.notes !== undefined ? body.notes : undefined,
       },
       include: {
         worker: {
           select: { id: true, name: true, specialty: true },
+        },
+        workerPayments: {
+          orderBy: { date: "desc" },
         },
       },
     });

@@ -67,12 +67,20 @@ export async function GET() {
     });
 
     // Total pending labor costs to pay workers
-    const pendingLaborCosts = await db.laborCost.aggregate({
-      where: { paidToWorker: false },
-      _sum: { workerPrice: true },
+    // Calculate: sum of (laborCost.workerPrice - sum of workerPayments for that laborCost)
+    const laborCostsWithPayments = await db.laborCost.findMany({
+      include: {
+        workerPayments: {
+          select: { amount: true },
+        },
+      },
     });
 
-    const totalPendingLaborCosts = pendingLaborCosts._sum.workerPrice || 0;
+    const totalPendingLaborCosts = laborCostsWithPayments.reduce((sum, lc) => {
+      const totalPaid = lc.workerPayments.reduce((s, p) => s + p.amount, 0);
+      const pending = Math.max(0, lc.workerPrice - totalPaid);
+      return sum + pending;
+    }, 0);
 
     return NextResponse.json({
       activeProjects,

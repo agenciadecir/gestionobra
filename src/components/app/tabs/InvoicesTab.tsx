@@ -85,6 +85,24 @@ const statusConfig: Record<
   },
 };
 
+const conceptConfig: Record<
+  Invoice['concept'],
+  { label: string; className: string }
+> = {
+  MANO_DE_OBRA: {
+    label: 'Mano de Obra',
+    className: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400',
+  },
+  MATERIAL: {
+    label: 'Material',
+    className: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400',
+  },
+  MIXTO: {
+    label: 'Mixto',
+    className: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400',
+  },
+};
+
 const methodLabels: Record<Payment['method'], string> = {
   EFECTIVO: 'Efectivo',
   TRANSFERENCIA: 'Transferencia',
@@ -103,6 +121,7 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
     number: '',
     amount: '',
     date: new Date().toISOString().split('T')[0],
+    concept: 'MIXTO' as Invoice['concept'],
     notes: '',
   });
 
@@ -113,6 +132,7 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
     number: '',
     amount: '',
     status: '' as Invoice['status'] | '',
+    concept: 'MIXTO' as Invoice['concept'] | '',
     notes: '',
   });
 
@@ -151,6 +171,14 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
 
   const saldoPendiente = totalFacturado - totalCobrado;
 
+  // Subtotals by concept
+  const subtotalByConcept = (
+    concept: Invoice['concept']
+  ) =>
+    invoices
+      .filter((inv) => inv.status !== 'ANULADA' && inv.concept === concept)
+      .reduce((sum, inv) => sum + inv.amount, 0);
+
   // ── Handlers ──
   const handleCreateInvoice = async () => {
     if (!newInvoice.number.trim() || !newInvoice.amount) {
@@ -164,6 +192,7 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
         body: JSON.stringify({
           number: newInvoice.number.trim(),
           amount: parseFloat(newInvoice.amount),
+          concept: newInvoice.concept,
           date: newInvoice.date || undefined,
           notes: newInvoice.notes.trim() || undefined,
         }),
@@ -171,7 +200,7 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
       if (!res.ok) throw new Error('Error al crear factura');
       toast.success('Factura creada correctamente');
       setShowNewInvoiceDialog(false);
-      setNewInvoice({ number: '', amount: '', date: new Date().toISOString().split('T')[0], notes: '' });
+      setNewInvoice({ number: '', amount: '', date: new Date().toISOString().split('T')[0], concept: 'MIXTO', notes: '' });
       onRefresh();
     } catch {
       toast.error('Error al crear factura');
@@ -180,7 +209,7 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
 
   const handleEditInvoice = async () => {
     if (!editingInvoice) return;
-    if (!editInvoiceForm.number.trim() || !editInvoiceForm.amount || !editInvoiceForm.status) {
+    if (!editInvoiceForm.number.trim() || !editInvoiceForm.amount || !editInvoiceForm.status || !editInvoiceForm.concept) {
       toast.error('Completá todos los campos requeridos');
       return;
     }
@@ -192,6 +221,7 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
           number: editInvoiceForm.number.trim(),
           amount: parseFloat(editInvoiceForm.amount),
           status: editInvoiceForm.status,
+          concept: editInvoiceForm.concept,
           notes: editInvoiceForm.notes.trim() || undefined,
         }),
       });
@@ -271,6 +301,7 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
       number: invoice.number,
       amount: String(invoice.amount),
       status: invoice.status,
+      concept: invoice.concept,
       notes: invoice.notes ?? '',
     });
     setShowEditInvoiceDialog(true);
@@ -335,6 +366,42 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
         </Card>
       </div>
 
+      {/* ── Subtotals by concept ── */}
+      {invoices.length > 0 && (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <Card>
+            <CardContent className="flex items-center gap-3 pt-0">
+              <Badge className={conceptConfig.MANO_DE_OBRA.className}>
+                {conceptConfig.MANO_DE_OBRA.label}
+              </Badge>
+              <span className="text-sm font-semibold">
+                {formatMoney(subtotalByConcept('MANO_DE_OBRA'))}
+              </span>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="flex items-center gap-3 pt-0">
+              <Badge className={conceptConfig.MATERIAL.className}>
+                {conceptConfig.MATERIAL.label}
+              </Badge>
+              <span className="text-sm font-semibold">
+                {formatMoney(subtotalByConcept('MATERIAL'))}
+              </span>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="flex items-center gap-3 pt-0">
+              <Badge className={conceptConfig.MIXTO.className}>
+                {conceptConfig.MIXTO.label}
+              </Badge>
+              <span className="text-sm font-semibold">
+                {formatMoney(subtotalByConcept('MIXTO'))}
+              </span>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       {/* ── Header with button ── */}
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">Facturas</h2>
@@ -371,6 +438,9 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex flex-wrap items-center gap-2">
                       <CardTitle className="font-bold">{invoice.number}</CardTitle>
+                      <Badge className={conceptConfig[invoice.concept].className}>
+                        {conceptConfig[invoice.concept].label}
+                      </Badge>
                       <Badge className={statusConfig[invoice.status].className}>
                         {statusConfig[invoice.status].label}
                       </Badge>
@@ -542,6 +612,29 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
               />
             </div>
             <div className="space-y-2">
+              <Label htmlFor="inv-concept">
+                Concepto <span className="text-destructive">*</span>
+              </Label>
+              <Select
+                value={newInvoice.concept}
+                onValueChange={(value) =>
+                  setNewInvoice({
+                    ...newInvoice,
+                    concept: value as Invoice['concept'],
+                  })
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Seleccioná un concepto" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="MANO_DE_OBRA">Mano de Obra</SelectItem>
+                  <SelectItem value="MATERIAL">Material</SelectItem>
+                  <SelectItem value="MIXTO">Mixto</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
               <Label htmlFor="inv-date">Fecha</Label>
               <Input
                 id="inv-date"
@@ -614,6 +707,29 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
                   setEditInvoiceForm({ ...editInvoiceForm, amount: e.target.value })
                 }
               />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-inv-concept">
+                Concepto <span className="text-destructive">*</span>
+              </Label>
+              <Select
+                value={editInvoiceForm.concept}
+                onValueChange={(value) =>
+                  setEditInvoiceForm({
+                    ...editInvoiceForm,
+                    concept: value as Invoice['concept'],
+                  })
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Seleccioná un concepto" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="MANO_DE_OBRA">Mano de Obra</SelectItem>
+                  <SelectItem value="MATERIAL">Material</SelectItem>
+                  <SelectItem value="MIXTO">Mixto</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-2">
               <Label htmlFor="edit-inv-status">

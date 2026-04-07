@@ -30,6 +30,7 @@ export async function PUT(
         unitCost,
         totalCost: quantity * unitCost,
         purchasedBy: body.purchasedBy !== undefined ? body.purchasedBy : undefined,
+        reimbursed: body.reimbursed !== undefined ? body.reimbursed : undefined,
         invoiceNumber: body.invoiceNumber !== undefined ? body.invoiceNumber : undefined,
         notes: body.notes !== undefined ? body.notes : undefined,
       },

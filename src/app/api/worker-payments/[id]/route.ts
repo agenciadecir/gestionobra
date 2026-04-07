@@ -9,37 +9,40 @@ export async function PUT(
     const { id } = await params;
     const body = await request.json();
 
-    const invoice = await db.invoice.findUnique({ where: { id } });
+    const existing = await db.workerPayment.findUnique({ where: { id } });
 
-    if (!invoice) {
+    if (!existing) {
       return NextResponse.json(
-        { error: "Factura no encontrada" },
+        { error: "Pago al trabajador no encontrado" },
         { status: 404 }
       );
     }
 
-    const updated = await db.invoice.update({
+    const updated = await db.workerPayment.update({
       where: { id },
       data: {
-        number: body.number !== undefined ? body.number : undefined,
         date: body.date ? new Date(body.date) : undefined,
         amount: body.amount !== undefined ? body.amount : undefined,
         concept: body.concept !== undefined ? body.concept : undefined,
-        status: body.status !== undefined ? body.status : undefined,
+        method: body.method !== undefined ? body.method : undefined,
         notes: body.notes !== undefined ? body.notes : undefined,
       },
       include: {
-        payments: {
-          orderBy: { createdAt: "desc" },
+        laborCost: {
+          include: {
+            worker: {
+              select: { id: true, name: true, specialty: true },
+            },
+          },
         },
       },
     });
 
     return NextResponse.json(updated);
   } catch (error) {
-    console.error("Error updating invoice:", error);
+    console.error("Error updating worker payment:", error);
     return NextResponse.json(
-      { error: "Error al actualizar la factura" },
+      { error: "Error al actualizar el pago al trabajador" },
       { status: 500 }
     );
   }
@@ -52,24 +55,24 @@ export async function DELETE(
   try {
     const { id } = await params;
 
-    const invoice = await db.invoice.findUnique({ where: { id } });
+    const workerPayment = await db.workerPayment.findUnique({ where: { id } });
 
-    if (!invoice) {
+    if (!workerPayment) {
       return NextResponse.json(
-        { error: "Factura no encontrada" },
+        { error: "Pago al trabajador no encontrado" },
         { status: 404 }
       );
     }
 
-    await db.invoice.delete({ where: { id } });
+    await db.workerPayment.delete({ where: { id } });
 
     return NextResponse.json({
-      message: "Factura eliminada correctamente",
+      message: "Pago al trabajador eliminado correctamente",
     });
   } catch (error) {
-    console.error("Error deleting invoice:", error);
+    console.error("Error deleting worker payment:", error);
     return NextResponse.json(
-      { error: "Error al eliminar la factura" },
+      { error: "Error al eliminar el pago al trabajador" },
       { status: 500 }
     );
   }

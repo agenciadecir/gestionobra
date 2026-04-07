@@ -49,6 +49,7 @@ export async function POST(
         number: body.number,
         date: body.date ? new Date(body.date) : new Date(),
         amount: body.amount || 0,
+        concept: body.concept || "MIXTO",
         status: body.status || "PENDIENTE",
         notes: body.notes || null,
       },
