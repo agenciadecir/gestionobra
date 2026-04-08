@@ -56,3 +56,25 @@ Stage Summary:
 - El Resumen muestra claramente: qué se facturó, qué se cobró, qué se pagó al trabajador, materiales, reintegros, y ganancia bruta
 - No hay más "datos flotantes": MO y materiales sin facturar generan alertas visibles
 - Cada factura muestra desglose completo: MO vinculada + Materiales vinculados
+
+---
+Task ID: 3
+Agent: Main
+Task: Remove markup from LaborCost - define it only in Budget
+
+Work Log:
+- Removed markupPercentage, markupAmount, finalPrice fields from LaborCost in Prisma schema
+- Updated types.ts: removed markup fields from LaborCost type
+- Updated API routes: removed markup logic from POST and PUT labor-costs
+- Rewrote LaborCostsTab: removed markup from form, table columns, summary cards (5→4 cards), mobile details
+- Updated ProjectDetail summary: replaced markup ganancia with budget vs actual comparison (MO presupuestada vs costo real)
+- Updated InvoicesTab: removed markup references, simplified labor cost breakdown per invoice
+- Pushed schema to DB (with --accept-data-loss for existing markup columns)
+- ESLint: 0 errors
+- Server: GET / 200 OK
+
+Stage Summary:
+- Markup is now defined ONLY in the Budget (as part of the price to the client)
+- LaborCost now stores only real costs paid to the worker (workerPrice)
+- Summary shows "MO Presupuestada" vs "Costo real trabajador" with difference = ganancia
+- No more duplicate markup entries anywhere in the system
