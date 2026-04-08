@@ -2,18 +2,19 @@
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
-import type { Project, LaborCost, Worker, WorkerPayment } from '@/lib/types';
+import type { Project, LaborCost, Worker, WorkerPayment, Invoice } from '@/lib/types';
 import {
   Plus,
   Trash2,
   HardHat,
   DollarSign,
   TrendingUp,
-  Wallet,
   CircleDot,
   Edit,
-  ChevronDown,
   Banknote,
+  Link2,
+  Unlink,
+  AlertTriangle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -62,6 +63,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 // ── Props ────────────────────────────────────────────────────────────────────
 
@@ -89,6 +91,10 @@ function formatDate(dateStr: string): string {
 
 function todayISO(): string {
   return new Date().toISOString().split('T')[0];
+}
+
+function getInvoiceLabel(invoice: Invoice): string {
+  return `#${invoice.number}`;
 }
 
 const CONCEPT_CONFIG: Record<
@@ -145,11 +151,18 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
   const [deletePaymentDialogOpen, setDeletePaymentDialogOpen] = useState(false);
   const [deletingPayment, setDeletingPayment] = useState<WorkerPayment | null>(null);
 
+  // Link dialog state
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false);
+  const [linkingCost, setLinkingCost] = useState<LaborCost | null>(null);
+  const [linkInvoiceId, setLinkInvoiceId] = useState<string>('__none');
+  const [linking, setLinking] = useState(false);
+
   // Create/Edit form state
   const [formDescription, setFormDescription] = useState('');
   const [formWorkerId, setFormWorkerId] = useState('');
   const [formWorkerPrice, setFormWorkerPrice] = useState('');
   const [formMarkupPercentage, setFormMarkupPercentage] = useState('20');
+  const [formInvoiceId, setFormInvoiceId] = useState('__none');
   const [formNotes, setFormNotes] = useState('');
 
   // Payment form state
@@ -158,6 +171,20 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
   const [payMethod, setPayMethod] = useState<WorkerPayment['method'] | ''>('');
   const [payDate, setPayDate] = useState(todayISO());
   const [payNotes, setPayNotes] = useState('');
+
+  // ── Available invoices (not ANULADA) for linking ────────────────────────────
+
+  const availableInvoices = useMemo(() => {
+    const invoices = project.invoices ?? [];
+    return invoices.filter((inv) => inv.status !== 'ANULADA');
+  }, [project.invoices]);
+
+  // Map invoice id -> invoice for quick lookup
+  const invoiceMap = useMemo(() => {
+    const map = new Map<string, Invoice>();
+    (project.invoices ?? []).forEach((inv) => map.set(inv.id, inv));
+    return map;
+  }, [project.invoices]);
 
   // ── Derived preview for create/edit form ────────────────────────────────────
 
@@ -245,6 +272,17 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
     return { totalMOCliente, totalPagadoTrabajadores, saldoPendiente, gananciaMarkup };
   }, [laborCosts, workerPayments, getTotalPaidForCost]);
 
+  // Unbilled labor costs (no invoiceId)
+  const unbilledCosts = useMemo(
+    () => laborCosts.filter((c) => !c.invoiceId),
+    [laborCosts]
+  );
+
+  const totalUnbilled = useMemo(
+    () => unbilledCosts.reduce((s, c) => s + c.finalPrice, 0),
+    [unbilledCosts]
+  );
+
   // ── Reset forms ────────────────────────────────────────────────────────────
 
   const resetForm = useCallback(() => {
@@ -252,6 +290,7 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
     setFormWorkerId('');
     setFormWorkerPrice('');
     setFormMarkupPercentage('20');
+    setFormInvoiceId('__none');
     setFormNotes('');
     setEditingCost(null);
   }, []);
@@ -278,6 +317,7 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
     setFormWorkerId(cost.workerId);
     setFormWorkerPrice(String(cost.workerPrice));
     setFormMarkupPercentage(String(cost.markupPercentage));
+    setFormInvoiceId(cost.invoiceId ?? '__none');
     setFormNotes(cost.notes ?? '');
     setFormOpen(true);
   };
@@ -302,6 +342,13 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
     setDeletePaymentDialogOpen(true);
   };
 
+  // Quick link dialog
+  const openLinkDialog = (cost: LaborCost) => {
+    setLinkingCost(cost);
+    setLinkInvoiceId('__none');
+    setLinkDialogOpen(true);
+  };
+
   // ── Submit create / edit labor cost ────────────────────────────────────────
 
   const handleSubmit = async () => {
@@ -318,9 +365,13 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
       return;
     }
 
+    const invoiceId =
+      formInvoiceId && formInvoiceId !== '__none' ? formInvoiceId : null;
+
     const body = {
       description: formDescription.trim(),
       workerId: formWorkerId || undefined,
+      invoiceId: invoiceId ?? undefined,
       workerPrice: parseFloat(formWorkerPrice),
       markupPercentage: parseFloat(formMarkupPercentage),
       notes: formNotes.trim() || undefined,
@@ -451,11 +502,75 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
     }
   };
 
+  // ── Link invoice to labor cost (quick link dialog) ────────────────────────
+
+  const handleLinkInvoice = async () => {
+    if (!linkingCost) return;
+    const invoiceId =
+      linkInvoiceId && linkInvoiceId !== '__none' ? linkInvoiceId : null;
+
+    if (!invoiceId) {
+      toast.error('Seleccioná una factura para vincular');
+      return;
+    }
+
+    setLinking(true);
+    try {
+      const res = await fetch(`/api/labor-costs/${linkingCost.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invoiceId }),
+      });
+      if (res.ok) {
+        const invoice = invoiceMap.get(invoiceId);
+        toast.success(
+          `Costo vinculado a factura ${invoice ? `#${invoice.number}` : ''}`
+        );
+        setLinkDialogOpen(false);
+        setLinkingCost(null);
+        onRefresh();
+      } else {
+        const err = await res.json();
+        toast.error(err.error ?? 'Error al vincular la factura');
+      }
+    } catch {
+      toast.error('Error de conexión');
+    } finally {
+      setLinking(false);
+    }
+  };
+
+  // ── Unlink invoice from labor cost ─────────────────────────────────────────
+
+  const handleUnlinkInvoice = async (cost: LaborCost) => {
+    try {
+      const res = await fetch(`/api/labor-costs/${cost.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invoiceId: null }),
+      });
+      if (res.ok) {
+        toast.success('Factura desvinculada del costo');
+        onRefresh();
+      } else {
+        const err = await res.json();
+        toast.error(err.error ?? 'Error al desvincular la factura');
+      }
+    } catch {
+      toast.error('Error de conexión');
+    }
+  };
+
   // ── Remaining amount for payment cost (for validation hints) ───────────────
 
   const remainingForCost = paymentCost
     ? Math.max(0, paymentCost.workerPrice - getTotalPaidForCost(paymentCost.id))
     : 0;
+
+  // ── Can link / unlink helpers ──────────────────────────────────────────────
+
+  const canLink = (c: LaborCost) => !c.invoiceId;
+  const canUnlink = (c: LaborCost) => !!c.invoiceId;
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -477,8 +592,19 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
         </Button>
       </div>
 
+      {/* ── Alert Banner for Unbilled Labor Costs ───────────────────────────── */}
+      {unbilledCosts.length > 0 && (
+        <Alert className="border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-700 dark:bg-amber-950/50 dark:text-amber-200">
+          <AlertTriangle className="size-4 text-amber-600 dark:text-amber-400" />
+          <AlertTitle>Costos de MO pendientes de facturar</AlertTitle>
+          <AlertDescription>
+            ⚠️ Tenés <strong>{unbilledCosts.length}</strong> costo{unbilledCosts.length > 1 ? 's' : ''} de mano de obra ({formatARS(totalUnbilled)}) sin vincular a ninguna factura. Vinculalos para un mejor seguimiento.
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* ── Summary Cards ────────────────────────────────────────────────────── */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         {/* Card 1: Total MO al cliente */}
         <Card>
           <CardContent className="pt-6">
@@ -546,6 +672,23 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
             </div>
           </CardContent>
         </Card>
+
+        {/* Card 5: Pendiente de facturar */}
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-3">
+              <div className={`flex size-10 items-center justify-center rounded-lg ${totalUnbilled > 0 ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400' : 'bg-gray-100 text-gray-700 dark:bg-gray-900/40 dark:text-gray-400'}`}>
+                <AlertTriangle className="size-5" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Pendiente de facturar</p>
+                <p className={`text-lg font-semibold ${totalUnbilled > 0 ? 'text-red-600 dark:text-red-400' : ''}`}>
+                  {formatARS(totalUnbilled)}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* ── Labor Costs Table (Accordion) ───────────────────────────────────── */}
@@ -569,7 +712,7 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
       ) : (
         <>
           {/* Column headers */}
-          <div className="hidden md:grid md:grid-cols-[2fr_1fr_1fr_0.7fr_1fr_1fr_1fr_1fr_auto] gap-2 px-4 py-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+          <div className="hidden lg:grid lg:grid-cols-[2fr_1fr_1fr_0.7fr_0.9fr_1fr_0.9fr_0.9fr_1fr_auto] gap-2 px-4 py-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">
             <span>Descripción</span>
             <span className="text-right">Trabajador</span>
             <span className="text-right">Precio Trabajador</span>
@@ -578,6 +721,7 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
             <span className="text-right">Precio Final</span>
             <span className="text-right">Pagado</span>
             <span className="text-right">Pendiente</span>
+            <span className="text-right">Factura</span>
             <span className="text-right">Acciones</span>
           </div>
 
@@ -591,6 +735,7 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
                   ? Math.min(100, (totalPaid / cost.workerPrice) * 100)
                   : 0;
               const isFullyPaid = pending <= 0;
+              const linkedInvoice = cost.invoiceId ? invoiceMap.get(cost.invoiceId) : null;
 
               return (
                 <AccordionItem
@@ -600,42 +745,42 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
                 >
                   {/* ── Accordion Trigger (row) ──────────────────────────────── */}
                   <AccordionTrigger className="px-4 py-3 hover:no-underline hover:bg-muted/30 rounded-t-lg">
-                    <div className="grid w-full grid-cols-2 md:grid-cols-[2fr_1fr_1fr_0.7fr_1fr_1fr_1fr_1fr_auto] gap-2 items-center text-sm text-left">
+                    <div className="grid w-full grid-cols-2 lg:grid-cols-[2fr_1fr_1fr_0.7fr_0.9fr_1fr_0.9fr_0.9fr_1fr_auto] gap-2 items-center text-sm text-left">
                       {/* Description */}
                       <span className="font-medium truncate">{cost.description}</span>
 
                       {/* Worker */}
-                      <span className="text-right hidden md:block">
+                      <span className="text-right hidden lg:block">
                         {cost.worker?.name ?? '-'}
                       </span>
 
                       {/* Worker Price */}
-                      <span className="text-right whitespace-nowrap hidden md:block">
+                      <span className="text-right whitespace-nowrap hidden lg:block">
                         {formatARS(cost.workerPrice)}
                       </span>
 
                       {/* Markup % */}
-                      <span className="text-right hidden md:block">
+                      <span className="text-right hidden lg:block">
                         {cost.markupPercentage}%
                       </span>
 
                       {/* Ganancia */}
-                      <span className="text-right whitespace-nowrap hidden md:block text-muted-foreground">
+                      <span className="text-right whitespace-nowrap hidden lg:block text-muted-foreground">
                         {formatARS(cost.markupAmount)}
                       </span>
 
                       {/* Final Price */}
-                      <span className="text-right whitespace-nowrap hidden md:block font-semibold">
+                      <span className="text-right whitespace-nowrap hidden lg:block font-semibold">
                         {formatARS(cost.finalPrice)}
                       </span>
 
                       {/* Paid */}
-                      <span className="text-right whitespace-nowrap hidden md:block">
+                      <span className="text-right whitespace-nowrap hidden lg:block">
                         {formatARS(totalPaid)}
                       </span>
 
                       {/* Pending */}
-                      <span className="text-right whitespace-nowrap hidden md:block">
+                      <span className="text-right whitespace-nowrap hidden lg:block">
                         {isFullyPaid ? (
                           <Badge
                             variant="secondary"
@@ -650,8 +795,50 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
                         )}
                       </span>
 
+                      {/* Factura Vinculada */}
+                      <span className="hidden lg:block">
+                        {cost.invoiceId ? (
+                          <Badge className="gap-1 bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
+                            <Link2 className="size-3" />
+                            {linkedInvoice ? getInvoiceLabel(linkedInvoice) : 'Factura'}
+                          </Badge>
+                        ) : (
+                          <Badge className="bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">
+                            Sin facturar
+                          </Badge>
+                        )}
+                      </span>
+
                       {/* Actions */}
-                      <div className="hidden md:flex justify-end gap-1">
+                      <div className="hidden lg:flex justify-end gap-1">
+                        {canLink(cost) && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-8 text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-900/20"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openLinkDialog(cost);
+                            }}
+                            title="Vincular a factura"
+                          >
+                            <Link2 className="size-4" />
+                          </Button>
+                        )}
+                        {canUnlink(cost) && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-8 text-muted-foreground hover:text-destructive"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleUnlinkInvoice(cost);
+                            }}
+                            title="Desvincular factura"
+                          >
+                            <Unlink className="size-4" />
+                          </Button>
+                        )}
                         <Button
                           variant="ghost"
                           size="icon"
@@ -695,7 +882,7 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
                   {/* ── Accordion Content (expanded) ──────────────────────────── */}
                   <AccordionContent className="px-4 pb-4">
                     {/* Mobile-only details */}
-                    <div className="md:hidden grid grid-cols-2 gap-2 text-sm mb-4">
+                    <div className="lg:hidden grid grid-cols-2 gap-2 text-sm mb-4">
                       <div>
                         <span className="text-muted-foreground">Trabajador: </span>
                         <span className="font-medium">{cost.worker?.name ?? '-'}</span>
@@ -712,10 +899,64 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
                         <span className="text-muted-foreground">Precio Final: </span>
                         <span className="font-semibold">{formatARS(cost.finalPrice)}</span>
                       </div>
+                      <div>
+                        <span className="text-muted-foreground">Pagado: </span>
+                        <span className="font-medium">{formatARS(totalPaid)}</span>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Pendiente: </span>
+                        {isFullyPaid ? (
+                          <Badge
+                            variant="secondary"
+                            className="bg-green-100 text-green-800 hover:bg-green-100 dark:bg-green-900/40 dark:text-green-400"
+                          >
+                            Liquidado
+                          </Badge>
+                        ) : (
+                          <span className="font-medium text-red-600 dark:text-red-400">
+                            {formatARS(pending)}
+                          </span>
+                        )}
+                      </div>
+                      <div className="col-span-2">
+                        <span className="text-muted-foreground">Factura Vinculada: </span>
+                        {cost.invoiceId ? (
+                          <Badge className="gap-1 bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
+                            <Link2 className="size-3" />
+                            {linkedInvoice ? getInvoiceLabel(linkedInvoice) : 'Factura'}
+                          </Badge>
+                        ) : (
+                          <Badge className="bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">
+                            Sin facturar
+                          </Badge>
+                        )}
+                      </div>
                     </div>
 
                     {/* Mobile actions */}
-                    <div className="md:hidden flex gap-2 mb-4">
+                    <div className="lg:hidden flex flex-wrap gap-2 mb-4">
+                      {canLink(cost) && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="gap-1.5 text-amber-600 border-amber-300 hover:bg-amber-50 dark:border-amber-800 dark:hover:bg-amber-900/20"
+                          onClick={() => openLinkDialog(cost)}
+                        >
+                          <Link2 className="size-3.5" />
+                          Vincular Factura
+                        </Button>
+                      )}
+                      {canUnlink(cost) && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="gap-1.5 text-muted-foreground"
+                          onClick={() => handleUnlinkInvoice(cost)}
+                        >
+                          <Unlink className="size-3.5" />
+                          Desvincular
+                        </Button>
+                      )}
                       <Button
                         size="sm"
                         variant="outline"
@@ -725,11 +966,21 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
                         <Banknote className="size-3.5" />
                         Registrar Pago
                       </Button>
-                      <Button size="sm" variant="outline" className="gap-1.5" onClick={() => openEditDialog(cost)}>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="gap-1.5"
+                        onClick={() => openEditDialog(cost)}
+                      >
                         <Edit className="size-3.5" />
                         Editar
                       </Button>
-                      <Button size="sm" variant="outline" className="gap-1.5 text-destructive border-destructive/30 hover:bg-destructive/5" onClick={() => openDeleteCostDialog(cost)}>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="gap-1.5 text-destructive border-destructive/30 hover:bg-destructive/5"
+                        onClick={() => openDeleteCostDialog(cost)}
+                      >
                         <Trash2 className="size-3.5" />
                         Eliminar
                       </Button>
@@ -831,7 +1082,7 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
           if (!open) resetForm();
         }}
       >
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {editingCost ? 'Editar Costo MO' : 'Nuevo Costo MO'}
@@ -919,6 +1170,29 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
                 </div>
               </div>
             )}
+
+            {/* Invoice selector */}
+            <div className="space-y-2">
+              <Label htmlFor="lc-invoice">Factura Vinculada</Label>
+              <Select value={formInvoiceId} onValueChange={setFormInvoiceId}>
+                <SelectTrigger id="lc-invoice" className="w-full">
+                  <SelectValue placeholder="Seleccionar factura" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none">
+                    Sin factura (pendiente)
+                  </SelectItem>
+                  {availableInvoices.map((inv) => (
+                    <SelectItem key={inv.id} value={inv.id}>
+                      #{inv.number} — {formatARS(inv.amount)}{' '}
+                      <span className="text-muted-foreground">
+                        ({inv.status})
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
             {/* Notes */}
             <div className="space-y-2">
@@ -1033,9 +1307,7 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
                   <SelectItem value="ADELANTO">Adelanto</SelectItem>
                   <SelectItem value="PARCIAL">Parcial</SelectItem>
                   <SelectItem value="FINAL">Final</SelectItem>
-                  <SelectItem value="REINTEGRO_MATERIAL">
-                    Reintegro Material
-                  </SelectItem>
+                  <SelectItem value="REINTEGRO_MATERIAL">Reintegro Material</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -1063,7 +1335,7 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
 
             {/* Date */}
             <div className="space-y-2">
-              <Label htmlFor="pay-date">Fecha</Label>
+              <Label htmlFor="pay-date">Fecha *</Label>
               <Input
                 id="pay-date"
                 type="date"
@@ -1077,7 +1349,7 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
               <Label htmlFor="pay-notes">Notas</Label>
               <Textarea
                 id="pay-notes"
-                placeholder="Notas del pago..."
+                placeholder="Notas adicionales..."
                 rows={2}
                 value={payNotes}
                 onChange={(e) => setPayNotes(e.target.value)}
@@ -1086,6 +1358,7 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
           </div>
           <DialogFooter>
             <Button
+              type="button"
               variant="outline"
               onClick={() => {
                 setPaymentDialogOpen(false);
@@ -1094,27 +1367,33 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
             >
               Cancelar
             </Button>
-            <Button onClick={handlePaymentSubmit} className="gap-2">
-              <Banknote className="size-4" />
+            <Button type="button" onClick={handlePaymentSubmit}>
               Registrar Pago
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* ── Delete Labor Cost Confirmation ───────────────────────────────────── */}
+      {/* ── Delete Labor Cost Confirmation Dialog ────────────────────────────── */}
       <AlertDialog open={deleteCostDialogOpen} onOpenChange={setDeleteCostDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Eliminar Costo</AlertDialogTitle>
+            <AlertDialogTitle>Eliminar costo de mano de obra</AlertDialogTitle>
             <AlertDialogDescription>
               ¿Estás seguro de que deseas eliminar{' '}
               <strong>{deletingCost?.description}</strong>? Esta acción no se
-              puede deshacer y se eliminarán también todos los pagos asociados.
+              puede deshacer y también se eliminarán los pagos asociados.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogCancel
+              onClick={() => {
+                setDeleteCostDialogOpen(false);
+                setDeletingCost(null);
+              }}
+            >
+              Cancelar
+            </AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDeleteCost}
               className="bg-destructive text-white hover:bg-destructive/90"
@@ -1125,25 +1404,26 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* ── Delete Worker Payment Confirmation ───────────────────────────────── */}
-      <AlertDialog
-        open={deletePaymentDialogOpen}
-        onOpenChange={setDeletePaymentDialogOpen}
-      >
+      {/* ── Delete Worker Payment Confirmation Dialog ────────────────────────── */}
+      <AlertDialog open={deletePaymentDialogOpen} onOpenChange={setDeletePaymentDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Eliminar Pago</AlertDialogTitle>
+            <AlertDialogTitle>Eliminar pago</AlertDialogTitle>
             <AlertDialogDescription>
-              ¿Estás seguro de que deseas eliminar el pago de{' '}
-              <strong>{formatARS(deletingPayment?.amount ?? 0)}</strong>
-              {deletingPayment?.laborCost?.worker?.name
-                ? ` a ${deletingPayment.laborCost.worker.name}`
-                : ''}
-              ? Esta acción no se puede deshacer.
+              ¿Estás seguro de que deseas eliminar este pago de{' '}
+              <strong>{formatARS(deletingPayment?.amount ?? 0)}</strong>? Esta
+              acción no se puede deshacer.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogCancel
+              onClick={() => {
+                setDeletePaymentDialogOpen(false);
+                setDeletingPayment(null);
+              }}
+            >
+              Cancelar
+            </AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDeletePayment}
               className="bg-destructive text-white hover:bg-destructive/90"
@@ -1153,6 +1433,55 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* ── Quick Link to Invoice Dialog ─────────────────────────────────────── */}
+      <Dialog open={linkDialogOpen} onOpenChange={setLinkDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Vincular costo a factura</DialogTitle>
+            <DialogDescription>
+              Seleccioná la factura a la que querés vincular{' '}
+              <strong>{linkingCost?.description}</strong>.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Select value={linkInvoiceId} onValueChange={setLinkInvoiceId}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Seleccionar factura" />
+              </SelectTrigger>
+              <SelectContent>
+                {availableInvoices.map((inv) => (
+                  <SelectItem key={inv.id} value={inv.id}>
+                    #{inv.number} — {formatARS(inv.amount)}{' '}
+                    <span className="text-muted-foreground">({inv.status})</span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {availableInvoices.length === 0 && (
+              <p className="text-sm text-muted-foreground italic">
+                No hay facturas disponibles (no anuladas) para vincular. Creá una factura primero.
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setLinkDialogOpen(false)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              onClick={handleLinkInvoice}
+              disabled={linking || linkInvoiceId === '__none' || availableInvoices.length === 0}
+            >
+              {linking ? 'Vinculando...' : 'Vincular'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

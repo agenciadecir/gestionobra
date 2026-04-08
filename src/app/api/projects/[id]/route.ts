@@ -16,7 +16,7 @@ export async function GET(
           orderBy: { createdAt: "desc" },
         },
         invoices: {
-          include: { payments: true, materials: true },
+          include: { payments: true, materials: true, laborCosts: { include: { worker: { select: { id: true, name: true, specialty: true } } } } },
           orderBy: { createdAt: "desc" },
         },
         materials: {
@@ -28,6 +28,7 @@ export async function GET(
             worker: {
               select: { id: true, name: true, specialty: true },
             },
+            invoice: { select: { id: true, number: true, status: true } },
             workerPayments: {
               orderBy: { date: "desc" },
             },

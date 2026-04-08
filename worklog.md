@@ -32,3 +32,27 @@ Stage Summary:
 - System manages: clients (particular/consorcio), workers, projects, budgets with items, invoices with partial payments, materials with purchase tracking, labor costs with markup, tasks with priorities
 - Argentine Peso currency formatting throughout
 - Responsive design with mobile sidebar
+---
+Task ID: 2
+Agent: Main
+Task: Rediseñar flujo financiero completo del sistema ObraGestión
+
+Work Log:
+- Analizado el flujo de trabajo real del usuario (presupuesto → factura inicial → pagos → obra → factura final)
+- Identificado problema principal: LaborCosts no se vinculaban a facturas (datos flotantes)
+- Agregado campo `invoiceId` al modelo LaborCost en Prisma schema
+- Agregada relación `laborCosts LaborCost[]` al modelo Invoice
+- Actualizado types.ts con invoiceId en LaborCost y laborCosts en Invoice
+- Actualizado GET /api/projects/[id] para incluir invoice en laborCosts y laborCosts en invoices
+- Actualizado POST /api/projects/[id]/labor-costs para aceptar invoiceId
+- Actualizado PUT /api/labor-costs/[id] para aceptar invoiceId (incluyendo null para desvincular)
+- Reescrito LaborCostsTab: alerta de MO sin facturar, columna Factura Vinculada, link/unlink a facturas, selector de factura en create/edit
+- Reescrito InvoicesTab: sección "Mano de Obra vinculada" por factura con desglose, breakdown completo (monto - MO - materiales = diferencia)
+- Rediseñado Resumen en ProjectDetail: Flujo Financiero visual con 4 secciones (Ingresos del Cliente, Mano de Obra, Materiales, Ganancia de la Obra), 12 KPI cards
+- Push schema a SQLite DB, lint 0 errors, compilación exitosa GET / 200
+
+Stage Summary:
+- Flujo financiero ahora conecta todos los datos: LaborCost ↔ Invoice ↔ Payment
+- El Resumen muestra claramente: qué se facturó, qué se cobró, qué se pagó al trabajador, materiales, reintegros, y ganancia bruta
+- No hay más "datos flotantes": MO y materiales sin facturar generan alertas visibles
+- Cada factura muestra desglose completo: MO vinculada + Materiales vinculados

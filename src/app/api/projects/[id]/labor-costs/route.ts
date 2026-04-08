@@ -55,6 +55,7 @@ export async function POST(
       data: {
         projectId: id,
         workerId: body.workerId,
+        invoiceId: body.invoiceId || null,
         description: body.description,
         workerPrice,
         markupPercentage,
@@ -66,6 +67,7 @@ export async function POST(
         worker: {
           select: { id: true, name: true, specialty: true },
         },
+        invoice: { select: { id: true, number: true, status: true } },
         workerPayments: {
           orderBy: { date: "desc" },
         },

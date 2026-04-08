@@ -84,6 +84,7 @@ export type Invoice = {
   updatedAt: string;
   payments?: Payment[];
   materials?: Material[];
+  laborCosts?: LaborCost[];
 };
 
 export type Payment = {
@@ -119,6 +120,7 @@ export type LaborCost = {
   id: string;
   projectId: string;
   workerId: string;
+  invoiceId?: string;
   description: string;
   workerPrice: number;
   markupPercentage: number;
@@ -128,6 +130,7 @@ export type LaborCost = {
   createdAt: string;
   updatedAt: string;
   worker?: Worker;
+  invoice?: Invoice;
   workerPayments?: WorkerPayment[];
 };
 

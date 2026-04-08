@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import type { Project, Invoice, Payment, Material } from '@/lib/types';
+import type { Project, Invoice, Payment, Material, LaborCost } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -45,6 +45,7 @@ import {
   ChevronUp,
   Package,
   AlertTriangle,
+  HardHat,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -169,43 +170,54 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
   const [deletingPayment, setDeletingPayment] = useState<Payment | null>(null);
 
   // ── Summary calculations ──
-  const totalFacturado = invoices
-    .filter((inv) => inv.status !== 'ANULADA')
-    .reduce((sum, inv) => sum + inv.amount, 0);
+  const activeInvoices = invoices.filter((inv) => inv.status !== 'ANULADA');
 
-  const totalCobrado = invoices
-    .filter((inv) => inv.status !== 'ANULADA')
-    .reduce((sum, inv) => {
-      const paymentsTotal = (inv.payments ?? []).reduce(
-        (pSum, p) => pSum + p.amount,
-        0
-      );
-      return sum + paymentsTotal;
-    }, 0);
+  const totalFacturado = activeInvoices.reduce(
+    (sum, inv) => sum + inv.amount,
+    0
+  );
 
-  const totalMaterialesEnFacturas = invoices
-    .filter((inv) => inv.status !== 'ANULADA')
-    .reduce((sum, inv) => {
-      const materialsTotal = (inv.materials ?? []).reduce(
-        (mSum, m) => mSum + m.totalCost,
-        0
-      );
-      return sum + materialsTotal;
-    }, 0);
+  const totalCobrado = activeInvoices.reduce((sum, inv) => {
+    const paymentsTotal = (inv.payments ?? []).reduce(
+      (pSum, p) => pSum + p.amount,
+      0
+    );
+    return sum + paymentsTotal;
+  }, 0);
+
+  const totalMaterialesEnFacturas = activeInvoices.reduce((sum, inv) => {
+    const materialsTotal = (inv.materials ?? []).reduce(
+      (mSum, m) => mSum + m.totalCost,
+      0
+    );
+    return sum + materialsTotal;
+  }, 0);
+
+  const totalMOVinculadaFacturas = activeInvoices.reduce((sum, inv) => {
+    const laborTotal = (inv.laborCosts ?? []).reduce(
+      (lSum, lc) => lSum + lc.finalPrice,
+      0
+    );
+    return sum + laborTotal;
+  }, 0);
 
   const saldoPendiente = totalFacturado - totalCobrado;
 
   // Subtotals by concept
-  const subtotalByConcept = (
-    concept: Invoice['concept']
-  ) =>
-    invoices
-      .filter((inv) => inv.status !== 'ANULADA' && inv.concept === concept)
+  const subtotalByConcept = (concept: Invoice['concept']) =>
+    activeInvoices
+      .filter((inv) => inv.concept === concept)
       .reduce((sum, inv) => sum + inv.amount, 0);
 
   // ── Helpers ──
   const getInvoiceMaterialsTotal = (invoice: Invoice) =>
     (invoice.materials ?? []).reduce((sum, m) => sum + m.totalCost, 0);
+
+  const getInvoiceLaborCostsTotal = (invoice: Invoice) =>
+    (invoice.laborCosts ?? []).reduce((sum, lc) => sum + lc.finalPrice, 0);
+
+  const getInvoiceLaborCostsMarkupTotal = (invoice: Invoice) =>
+    (invoice.laborCosts ?? []).reduce((sum, lc) => sum + lc.markupAmount, 0);
 
   // ── Handlers ──
   const handleCreateInvoice = async () => {
@@ -228,7 +240,13 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
       if (!res.ok) throw new Error('Error al crear factura');
       toast.success('Factura creada correctamente');
       setShowNewInvoiceDialog(false);
-      setNewInvoice({ number: '', amount: '', date: new Date().toISOString().split('T')[0], concept: 'MIXTO', notes: '' });
+      setNewInvoice({
+        number: '',
+        amount: '',
+        date: new Date().toISOString().split('T')[0],
+        concept: 'MIXTO',
+        notes: '',
+      });
       onRefresh();
     } catch {
       toast.error('Error al crear factura');
@@ -237,7 +255,12 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
 
   const handleEditInvoice = async () => {
     if (!editingInvoice) return;
-    if (!editInvoiceForm.number.trim() || !editInvoiceForm.amount || !editInvoiceForm.status || !editInvoiceForm.concept) {
+    if (
+      !editInvoiceForm.number.trim() ||
+      !editInvoiceForm.amount ||
+      !editInvoiceForm.status ||
+      !editInvoiceForm.concept
+    ) {
       toast.error('Completá todos los campos requeridos');
       return;
     }
@@ -300,7 +323,12 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
       toast.success('Pago registrado correctamente');
       setShowPaymentDialog(false);
       setPaymentInvoiceId(null);
-      setNewPayment({ amount: '', date: new Date().toISOString().split('T')[0], method: '', notes: '' });
+      setNewPayment({
+        amount: '',
+        date: new Date().toISOString().split('T')[0],
+        method: '',
+        notes: '',
+      });
       onRefresh();
     } catch {
       toast.error('Error al agregar pago');
@@ -342,7 +370,12 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
 
   const openPaymentDialog = (invoiceId: string) => {
     setPaymentInvoiceId(invoiceId);
-    setNewPayment({ amount: '', date: new Date().toISOString().split('T')[0], method: '', notes: '' });
+    setNewPayment({
+      amount: '',
+      date: new Date().toISOString().split('T')[0],
+      method: '',
+      notes: '',
+    });
     setShowPaymentDialog(true);
   };
 
@@ -361,7 +394,7 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardContent className="flex items-center gap-3 pt-0">
-            <div className="flex size-10 items-center justify-center rounded-lg bg-blue-100 text-blue-700">
+            <div className="flex size-10 items-center justify-center rounded-lg bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400">
               <FileText className="size-5" />
             </div>
             <div>
@@ -372,7 +405,7 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
         </Card>
         <Card>
           <CardContent className="flex items-center gap-3 pt-0">
-            <div className="flex size-10 items-center justify-center rounded-lg bg-green-100 text-green-700">
+            <div className="flex size-10 items-center justify-center rounded-lg bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400">
               <CreditCard className="size-5" />
             </div>
             <div>
@@ -383,23 +416,39 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
         </Card>
         <Card>
           <CardContent className="flex items-center gap-3 pt-0">
-            <div className={`flex size-10 items-center justify-center rounded-lg ${saldoPendiente > 0 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+            <div
+              className={`flex size-10 items-center justify-center rounded-lg ${
+                saldoPendiente > 0
+                  ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400'
+                  : 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400'
+              }`}
+            >
               <DollarSign className="size-5" />
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Saldo Pendiente</p>
-              <p className={`text-lg font-bold ${saldoPendiente > 0 ? 'text-red-600' : 'text-green-600'}`}>{formatMoney(saldoPendiente)}</p>
+              <p
+                className={`text-lg font-bold ${
+                  saldoPendiente > 0 ? 'text-red-600' : 'text-green-600'
+                }`}
+              >
+                {formatMoney(saldoPendiente)}
+              </p>
             </div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="flex items-center gap-3 pt-0">
-            <div className="flex size-10 items-center justify-center rounded-lg bg-orange-100 text-orange-700">
-              <Package className="size-5" />
+            <div className="flex size-10 items-center justify-center rounded-lg bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-400">
+              <HardHat className="size-5" />
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">Materiales en Facturas</p>
-              <p className="text-lg font-bold">{formatMoney(totalMaterialesEnFacturas)}</p>
+              <p className="text-sm text-muted-foreground">
+                MO Vinculada a Facturas
+              </p>
+              <p className="text-lg font-bold">
+                {formatMoney(totalMOVinculadaFacturas)}
+              </p>
             </div>
           </CardContent>
         </Card>
@@ -455,7 +504,9 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12 text-center">
             <FileText className="mb-3 size-12 text-muted-foreground/50" />
-            <p className="text-muted-foreground">No hay facturas registradas</p>
+            <p className="text-muted-foreground">
+              No hay facturas registradas
+            </p>
             <p className="text-sm text-muted-foreground/70">
               Hacé clic en &quot;Nueva Factura&quot; para agregar una
             </p>
@@ -465,25 +516,43 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
         <div className="space-y-4">
           {invoices.map((invoice) => {
             const payments = invoice.payments ?? [];
-            const totalPaid = payments.reduce((sum, p) => sum + p.amount, 0);
+            const totalPaid = payments.reduce(
+              (sum, p) => sum + p.amount,
+              0
+            );
             const paymentPercent =
-              invoice.amount > 0 ? Math.min((totalPaid / invoice.amount) * 100, 100) : 0;
+              invoice.amount > 0
+                ? Math.min((totalPaid / invoice.amount) * 100, 100)
+                : 0;
             const isExpanded = expandedInvoiceId === invoice.id;
             const isAnulada = invoice.status === 'ANULADA';
             const materials = invoice.materials ?? [];
+            const laborCosts = invoice.laborCosts ?? [];
             const materialsTotal = getInvoiceMaterialsTotal(invoice);
+            const laborCostsTotal = getInvoiceLaborCostsTotal(invoice);
+            const laborCostsMarkupTotal = getInvoiceLaborCostsMarkupTotal(invoice);
             const hasMaterials = materials.length > 0;
-            const difference = invoice.amount - materialsTotal;
-            const isOverMaterials = materialsTotal > invoice.amount;
+            const hasLaborCosts = laborCosts.length > 0;
+            const hasLinkedItems = hasMaterials || hasLaborCosts;
+            const linkedTotal = materialsTotal + laborCostsTotal;
+            const difference = invoice.amount - linkedTotal;
+            const isOverLinked = linkedTotal > invoice.amount;
             const isEqualAmount = Math.abs(difference) < 0.01;
 
             return (
-              <Card key={invoice.id} className={isAnulada ? 'opacity-60' : ''}>
+              <Card
+                key={invoice.id}
+                className={isAnulada ? 'opacity-60' : ''}
+              >
                 <CardHeader>
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex flex-wrap items-center gap-2">
-                      <CardTitle className="font-bold">{invoice.number}</CardTitle>
-                      <Badge className={conceptConfig[invoice.concept].className}>
+                      <CardTitle className="font-bold">
+                        {invoice.number}
+                      </CardTitle>
+                      <Badge
+                        className={conceptConfig[invoice.concept].className}
+                      >
                         {conceptConfig[invoice.concept].label}
                       </Badge>
                       <Badge className={statusConfig[invoice.status].className}>
@@ -495,7 +564,17 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
                       {hasMaterials && (
                         <Badge variant="outline" className="gap-1">
                           <Package className="size-3" />
-                          {materials.length} material{materials.length !== 1 ? 'es' : ''}
+                          {materials.length} material
+                          {materials.length !== 1 ? 'es' : ''}
+                        </Badge>
+                      )}
+                      {hasLaborCosts && (
+                        <Badge
+                          variant="outline"
+                          className="gap-1 border-indigo-200 text-indigo-700 dark:border-indigo-800 dark:text-indigo-400"
+                        >
+                          <HardHat className="size-3" />
+                          {laborCosts.length} MO
                         </Badge>
                       )}
                     </div>
@@ -536,9 +615,12 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
                   <CardContent className="space-y-2">
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-muted-foreground">
-                        Cobrado: {formatMoney(totalPaid)} de {formatMoney(invoice.amount)}
+                        Cobrado: {formatMoney(totalPaid)} de{' '}
+                        {formatMoney(invoice.amount)}
                       </span>
-                      <span className="font-medium">{paymentPercent.toFixed(0)}%</span>
+                      <span className="font-medium">
+                        {paymentPercent.toFixed(0)}%
+                      </span>
                     </div>
                     <Progress value={paymentPercent} />
 
@@ -550,7 +632,8 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
                         onClick={() => toggleExpand(invoice.id)}
                       >
                         <span className="text-sm">
-                          {payments.length} pago{payments.length !== 1 ? 's' : ''}
+                          {payments.length} pago
+                          {payments.length !== 1 ? 's' : ''}
                         </span>
                         {isExpanded ? (
                           <ChevronUp className="size-4" />
@@ -574,7 +657,10 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
                                     <span className="text-sm font-medium">
                                       {formatDate(payment.date)}
                                     </span>
-                                    <Badge variant="secondary" className="text-xs">
+                                    <Badge
+                                      variant="secondary"
+                                      className="text-xs"
+                                    >
                                       {methodLabels[payment.method]}
                                     </Badge>
                                     <span className="font-semibold">
@@ -627,7 +713,7 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
                                     {material.description}
                                   </span>
                                   <span className="text-xs text-muted-foreground">
-                                    {material.quantity} × {material.unit}
+                                    {material.quantity} &times; {material.unit}
                                   </span>
                                   <Badge
                                     variant="secondary"
@@ -663,41 +749,138 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
                       )}
                     </div>
 
-                    {/* ── Monto vs Materiales comparison ── */}
-                    {hasMaterials && (
+                    {/* ── Mano de Obra vinculada section (NEW) ── */}
+                    <div className="mt-3 rounded-lg border border-dashed border-indigo-200 bg-indigo-50/50 p-3 dark:border-indigo-800/40 dark:bg-indigo-950/20">
+                      <div className="mb-2 flex items-center gap-2">
+                        <HardHat className="size-4 text-indigo-600 dark:text-indigo-400" />
+                        <span className="text-sm font-semibold text-indigo-700 dark:text-indigo-300">
+                          Mano de Obra vinculada
+                        </span>
+                      </div>
+
+                      {hasLaborCosts ? (
+                        <div className="space-y-2">
+                          {laborCosts.map((lc, idx) => (
+                            <div key={lc.id}>
+                              <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
+                                <div className="space-y-0.5">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="text-sm font-medium">
+                                      {lc.description}
+                                    </span>
+                                    <span className="text-xs text-indigo-600 dark:text-indigo-400">
+                                      &mdash; {lc.worker?.name ?? 'Trabajador'}
+                                    </span>
+                                  </div>
+                                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                    <span>
+                                      Precio trabajador:{' '}
+                                      {formatMoney(lc.workerPrice)}
+                                    </span>
+                                    <span>&bull;</span>
+                                    <span>
+                                      Markup: {lc.markupPercentage}%
+                                    </span>
+                                    <span>&bull;</span>
+                                    <span className="font-semibold text-indigo-700 dark:text-indigo-400">
+                                      Precio final:{' '}
+                                      {formatMoney(lc.finalPrice)}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                              {idx < laborCosts.length - 1 && (
+                                <Separator className="my-1.5" />
+                              )}
+                            </div>
+                          ))}
+
+                          <Separator className="my-1.5" />
+                          <div className="space-y-1">
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm font-semibold text-indigo-700 dark:text-indigo-300">
+                                Ganancia por markup
+                              </span>
+                              <span className="text-sm font-bold text-green-600 dark:text-green-400">
+                                +{formatMoney(laborCostsMarkupTotal)}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm font-semibold text-indigo-700 dark:text-indigo-300">
+                                Total MO
+                              </span>
+                              <span className="text-sm font-bold">
+                                {formatMoney(laborCostsTotal)}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-sm italic text-muted-foreground">
+                          Sin mano de obra vinculada
+                        </p>
+                      )}
+                    </div>
+
+                    {/* ── Invoice breakdown section ── */}
+                    {hasLinkedItems && (
                       <div className="mt-2 rounded-lg border bg-muted/30 p-3">
                         <div className="space-y-1.5">
                           <div className="flex items-center justify-between text-sm">
-                            <span className="text-muted-foreground">Monto facturado</span>
-                            <span className="font-semibold">{formatMoney(invoice.amount)}</span>
+                            <span className="text-muted-foreground">
+                              Monto facturado
+                            </span>
+                            <span className="font-semibold">
+                              {formatMoney(invoice.amount)}
+                            </span>
                           </div>
-                          <div className="flex items-center justify-between text-sm">
-                            <span className="text-muted-foreground">− Materiales vinculados</span>
-                            <span className="font-semibold">{formatMoney(materialsTotal)}</span>
-                          </div>
+                          {hasMaterials && (
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-muted-foreground">
+                                &minus; Materiales vinculados
+                              </span>
+                              <span className="font-semibold">
+                                {formatMoney(materialsTotal)}
+                              </span>
+                            </div>
+                          )}
+                          {hasLaborCosts && (
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-muted-foreground">
+                                &minus; Mano de obra vinculada
+                              </span>
+                              <span className="font-semibold">
+                                {formatMoney(laborCostsTotal)}
+                              </span>
+                            </div>
+                          )}
                           <Separator />
                           <div className="flex items-center justify-between text-sm">
                             <div className="flex items-center gap-1.5">
-                              <span className="font-medium">Diferencia (mano de obra/otros)</span>
-                              {isOverMaterials && (
+                              <span className="font-medium">Diferencia</span>
+                              {isOverLinked && (
                                 <AlertTriangle className="size-3.5 text-red-500" />
                               )}
                             </div>
                             <span
                               className={`font-bold ${
-                                isOverMaterials
+                                isOverLinked
                                   ? 'text-red-600 dark:text-red-400'
                                   : isEqualAmount
                                     ? 'text-green-600 dark:text-green-400'
-                                    : 'text-foreground'
+                                    : difference < 0
+                                      ? 'text-orange-600 dark:text-orange-400'
+                                      : 'text-foreground'
                               }`}
                             >
-                              {formatMoney(difference)}
+                              {difference < 0 ? '− ' : ''}
+                              {formatMoney(Math.abs(difference))}
                             </span>
                           </div>
-                          {isOverMaterials && (
+                          {isOverLinked && (
                             <p className="text-xs text-red-500">
-                              ⚠ Los materiales superan el monto facturado
+                              Los materiales y mano de obra superan el monto
+                              facturado
                             </p>
                           )}
                         </div>
@@ -705,7 +888,7 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
                     )}
 
                     {invoice.notes && (
-                      <p className="mt-2 text-sm text-muted-foreground italic">
+                      <p className="mt-2 text-sm italic text-muted-foreground">
                         {invoice.notes}
                       </p>
                     )}
@@ -720,7 +903,10 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
       {/* ════════════════════════════════════════════════════════════ */}
       {/* Nueva Factura Dialog */}
       {/* ════════════════════════════════════════════════════════════ */}
-      <Dialog open={showNewInvoiceDialog} onOpenChange={setShowNewInvoiceDialog}>
+      <Dialog
+        open={showNewInvoiceDialog}
+        onOpenChange={setShowNewInvoiceDialog}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Nueva Factura</DialogTitle>
@@ -819,7 +1005,10 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
       {/* ════════════════════════════════════════════════════════════ */}
       {/* Editar Factura Dialog */}
       {/* ════════════════════════════════════════════════════════════ */}
-      <Dialog open={showEditInvoiceDialog} onOpenChange={setShowEditInvoiceDialog}>
+      <Dialog
+        open={showEditInvoiceDialog}
+        onOpenChange={setShowEditInvoiceDialog}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Editar Factura</DialogTitle>
@@ -836,7 +1025,10 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
                 id="edit-inv-number"
                 value={editInvoiceForm.number}
                 onChange={(e) =>
-                  setEditInvoiceForm({ ...editInvoiceForm, number: e.target.value })
+                  setEditInvoiceForm({
+                    ...editInvoiceForm,
+                    number: e.target.value,
+                  })
                 }
               />
             </div>
@@ -851,7 +1043,10 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
                 min="0"
                 value={editInvoiceForm.amount}
                 onChange={(e) =>
-                  setEditInvoiceForm({ ...editInvoiceForm, amount: e.target.value })
+                  setEditInvoiceForm({
+                    ...editInvoiceForm,
+                    amount: e.target.value,
+                  })
                 }
               />
             </div>
@@ -910,7 +1105,10 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
                 id="edit-inv-notes"
                 value={editInvoiceForm.notes}
                 onChange={(e) =>
-                  setEditInvoiceForm({ ...editInvoiceForm, notes: e.target.value })
+                  setEditInvoiceForm({
+                    ...editInvoiceForm,
+                    notes: e.target.value,
+                  })
                 }
               />
             </div>
@@ -939,8 +1137,10 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
             <AlertDialogTitle>¿Eliminar factura?</AlertDialogTitle>
             <AlertDialogDescription>
               Esta acción no se puede deshacer. Se eliminará la factura{' '}
-              <span className="font-semibold">{deletingInvoice?.number}</span> y
-              todos sus pagos asociados.
+              <span className="font-semibold">
+                {deletingInvoice?.number}
+              </span>{' '}
+              y todos sus pagos asociados.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1012,7 +1212,9 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="EFECTIVO">Efectivo</SelectItem>
-                  <SelectItem value="TRANSFERENCIA">Transferencia</SelectItem>
+                  <SelectItem value="TRANSFERENCIA">
+                    Transferencia
+                  </SelectItem>
                   <SelectItem value="CHEQUE">Cheque</SelectItem>
                   <SelectItem value="OTRO">Otro</SelectItem>
                 </SelectContent>
@@ -1057,10 +1259,7 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
               <span className="font-semibold">
                 {formatMoney(deletingPayment?.amount ?? 0)}
               </span>{' '}
-              registrado el{' '}
-              <span className="font-semibold">
-                {deletingPayment ? formatDate(deletingPayment.date) : ''}
-              </span>
+              ({formatDate(deletingPayment?.date ?? new Date().toISOString())})
               .
             </AlertDialogDescription>
           </AlertDialogHeader>

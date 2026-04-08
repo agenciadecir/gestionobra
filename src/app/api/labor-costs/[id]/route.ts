@@ -31,6 +31,7 @@ export async function PUT(
       where: { id },
       data: {
         workerId: body.workerId !== undefined ? body.workerId : undefined,
+        invoiceId: body.invoiceId !== undefined ? (body.invoiceId || null) : undefined,
         description:
           body.description !== undefined ? body.description : undefined,
         workerPrice,
@@ -43,6 +44,7 @@ export async function PUT(
         worker: {
           select: { id: true, name: true, specialty: true },
         },
+        invoice: { select: { id: true, number: true, status: true } },
         workerPayments: {
           orderBy: { date: "desc" },
         },
