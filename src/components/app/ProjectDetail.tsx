@@ -241,12 +241,16 @@ export default function ProjectDetail() {
 
   const saldoPendienteCliente = totalFacturado - totalCobrado;
 
-  // Labor costs
-  const totalMOCliente = project?.laborCosts?.reduce((sum, l) => sum + l.finalPrice, 0) ?? 0;
+  // Labor costs (costo real pagado al trabajador)
   const totalMOTrabajador = project?.laborCosts?.reduce((sum, l) => sum + l.workerPrice, 0) ?? 0;
-  const totalMarkupGanancia = project?.laborCosts?.reduce((sum, l) => sum + l.markupAmount, 0) ?? 0;
-  const moSinFacturar = project?.laborCosts?.filter((l) => !l.invoiceId).reduce((sum, l) => sum + l.finalPrice, 0) ?? 0;
+  const moSinFacturar = project?.laborCosts?.filter((l) => !l.invoiceId).reduce((sum, l) => sum + l.workerPrice, 0) ?? 0;
   const moSinFacturarCount = project?.laborCosts?.filter((l) => !l.invoiceId).length ?? 0;
+
+  // MO presupuestada (desde presupuestos aprobados, items de categoria MANO_DE_OBRA)
+  const totalMOPresupuestada =
+    project?.budgets
+      ?.filter((b) => b.status === 'APROBADO')
+      .reduce((sum, b) => sum + (b.items ?? []).filter((i) => i.category === 'MANO_DE_OBRA').reduce((s, i) => s + i.totalPrice, 0), 0) ?? 0;
 
   // Worker payments
   const totalPagadoTrabajadores =
@@ -335,8 +339,8 @@ export default function ProjectDetail() {
     },
     // Row 2 – Con el trabajador
     {
-      label: 'MO Total (con markup)',
-      value: fmtMoney(totalMOCliente),
+      label: 'MO Presupuestada',
+      value: fmtMoney(totalMOPresupuestada),
       icon: DollarSign,
       color: 'text-purple-600',
       bg: 'bg-purple-50',
@@ -356,11 +360,11 @@ export default function ProjectDetail() {
       bg: saldoPendienteTrabajadores > 0 ? 'bg-red-50' : 'bg-green-50',
     },
     {
-      label: 'Ganancia x Markup',
-      value: fmtMoney(totalMarkupGanancia),
+      label: 'Diferencia MO',
+      value: fmtMoney(totalMOPresupuestada - totalMOTrabajador),
       icon: TrendingUp,
-      color: 'text-emerald-600',
-      bg: 'bg-emerald-50',
+      color: (totalMOPresupuestada - totalMOTrabajador) >= 0 ? 'text-emerald-600' : 'text-red-600',
+      bg: (totalMOPresupuestada - totalMOTrabajador) >= 0 ? 'bg-emerald-50' : 'bg-red-50',
     },
     // Row 3 – Costos y Ganancia final
     {
@@ -709,16 +713,18 @@ export default function ProjectDetail() {
                 <p className="mb-2 font-semibold text-purple-800 dark:text-purple-300">👷 Mano de Obra</p>
                 <div className="space-y-1">
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">MO total al cliente (con markup)</span>
-                    <span className="font-medium">{fmtMoney(totalMOCliente)}</span>
+                    <span className="text-muted-foreground">MO presupuestada (al cliente)</span>
+                    <span className="font-medium">{fmtMoney(totalMOPresupuestada)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">→ Costo trabajador (sin markup)</span>
+                    <span className="text-muted-foreground">→ Costo real trabajador</span>
                     <span className="font-medium">{fmtMoney(totalMOTrabajador)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">→ Ganancia por markup</span>
-                    <span className="font-medium text-emerald-600">+ {fmtMoney(totalMarkupGanancia)}</span>
+                    <span className="text-muted-foreground">→ Diferencia (ganancia MO)</span>
+                    <span className={`font-medium ${(totalMOPresupuestada - totalMOTrabajador) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                      {(totalMOPresupuestada - totalMOTrabajador) >= 0 ? '+' : ''}{fmtMoney(totalMOPresupuestada - totalMOTrabajador)}
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">→ Ya pagado al trabajador</span>

@@ -7,8 +7,6 @@ import {
   Plus,
   Trash2,
   HardHat,
-  DollarSign,
-  TrendingUp,
   CircleDot,
   Edit,
   Banknote,
@@ -161,7 +159,6 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
   const [formDescription, setFormDescription] = useState('');
   const [formWorkerId, setFormWorkerId] = useState('');
   const [formWorkerPrice, setFormWorkerPrice] = useState('');
-  const [formMarkupPercentage, setFormMarkupPercentage] = useState('20');
   const [formInvoiceId, setFormInvoiceId] = useState('__none');
   const [formNotes, setFormNotes] = useState('');
 
@@ -185,13 +182,6 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
     (project.invoices ?? []).forEach((inv) => map.set(inv.id, inv));
     return map;
   }, [project.invoices]);
-
-  // ── Derived preview for create/edit form ────────────────────────────────────
-
-  const parsedWorkerPrice = parseFloat(formWorkerPrice) || 0;
-  const parsedMarkup = parseFloat(formMarkupPercentage) || 0;
-  const computedMarkupAmount = parsedWorkerPrice * parsedMarkup / 100;
-  const computedFinalPrice = parsedWorkerPrice + computedMarkupAmount;
 
   // ── Helpers per labor cost ──────────────────────────────────────────────────
 
@@ -262,15 +252,11 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
   // ── Summary calculations ───────────────────────────────────────────────────
 
   const summary = useMemo(() => {
-    const totalMOCliente = laborCosts.reduce((s, c) => s + c.finalPrice, 0);
-    const totalPagadoTrabajadores = workerPayments.reduce((s, p) => s + p.amount, 0);
-    const saldoPendiente = laborCosts.reduce(
-      (s, c) => s + (c.workerPrice - getTotalPaidForCost(c.id)),
-      0
-    );
-    const gananciaMarkup = laborCosts.reduce((s, c) => s + c.markupAmount, 0);
-    return { totalMOCliente, totalPagadoTrabajadores, saldoPendiente, gananciaMarkup };
-  }, [laborCosts, workerPayments, getTotalPaidForCost]);
+    const totalCostoMO = laborCosts.reduce((s, c) => s + c.workerPrice, 0);
+    const totalPagado = workerPayments.reduce((s, p) => s + p.amount, 0);
+    const saldoPendiente = totalCostoMO - totalPagado;
+    return { totalCostoMO, totalPagado, saldoPendiente };
+  }, [laborCosts, workerPayments]);
 
   // Unbilled labor costs (no invoiceId)
   const unbilledCosts = useMemo(
@@ -279,7 +265,7 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
   );
 
   const totalUnbilled = useMemo(
-    () => unbilledCosts.reduce((s, c) => s + c.finalPrice, 0),
+    () => unbilledCosts.reduce((s, c) => s + c.workerPrice, 0),
     [unbilledCosts]
   );
 
@@ -289,7 +275,6 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
     setFormDescription('');
     setFormWorkerId('');
     setFormWorkerPrice('');
-    setFormMarkupPercentage('20');
     setFormInvoiceId('__none');
     setFormNotes('');
     setEditingCost(null);
@@ -316,7 +301,6 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
     setFormDescription(cost.description);
     setFormWorkerId(cost.workerId);
     setFormWorkerPrice(String(cost.workerPrice));
-    setFormMarkupPercentage(String(cost.markupPercentage));
     setFormInvoiceId(cost.invoiceId ?? '__none');
     setFormNotes(cost.notes ?? '');
     setFormOpen(true);
@@ -360,10 +344,6 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
       toast.error('El precio del trabajador es obligatorio');
       return;
     }
-    if (formMarkupPercentage === '' || isNaN(parseFloat(formMarkupPercentage))) {
-      toast.error('El porcentaje de markup es obligatorio');
-      return;
-    }
 
     const invoiceId =
       formInvoiceId && formInvoiceId !== '__none' ? formInvoiceId : null;
@@ -373,7 +353,6 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
       workerId: formWorkerId || undefined,
       invoiceId: invoiceId ?? undefined,
       workerPrice: parseFloat(formWorkerPrice),
-      markupPercentage: parseFloat(formMarkupPercentage),
       notes: formNotes.trim() || undefined,
     };
 
@@ -604,18 +583,18 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
       )}
 
       {/* ── Summary Cards ────────────────────────────────────────────────────── */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        {/* Card 1: Total MO al cliente */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {/* Card 1: Total Costo MO */}
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
               <div className="flex size-10 items-center justify-center rounded-lg bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-400">
-                <DollarSign className="size-5" />
+                <HardHat className="size-5" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Total MO al cliente</p>
+                <p className="text-sm text-muted-foreground">Total Costo MO</p>
                 <p className="text-lg font-semibold">
-                  {formatARS(summary.totalMOCliente)}
+                  {formatARS(summary.totalCostoMO)}
                 </p>
               </div>
             </div>
@@ -632,14 +611,14 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
               <div>
                 <p className="text-sm text-muted-foreground">Total pagado a trabajadores</p>
                 <p className="text-lg font-semibold">
-                  {formatARS(summary.totalPagadoTrabajadores)}
+                  {formatARS(summary.totalPagado)}
                 </p>
               </div>
             </div>
           </CardContent>
         </Card>
 
-        {/* Card 3: Saldo pendiente a trabajadores */}
+        {/* Card 3: Saldo pendiente */}
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
@@ -647,7 +626,7 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
                 <CircleDot className="size-5" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Saldo pendiente a trabajadores</p>
+                <p className="text-sm text-muted-foreground">Saldo pendiente</p>
                 <p className={`text-lg font-semibold ${summary.saldoPendiente > 0 ? 'text-red-600 dark:text-red-400' : ''}`}>
                   {formatARS(summary.saldoPendiente)}
                 </p>
@@ -656,24 +635,7 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
           </CardContent>
         </Card>
 
-        {/* Card 4: Ganancia por markup */}
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <div className="flex size-10 items-center justify-center rounded-lg bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400">
-                <TrendingUp className="size-5" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Ganancia por markup</p>
-                <p className="text-lg font-semibold">
-                  {formatARS(summary.gananciaMarkup)}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Card 5: Pendiente de facturar */}
+        {/* Card 4: Pendiente de facturar */}
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
@@ -712,13 +674,10 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
       ) : (
         <>
           {/* Column headers */}
-          <div className="hidden lg:grid lg:grid-cols-[2fr_1fr_1fr_0.7fr_0.9fr_1fr_0.9fr_0.9fr_1fr_auto] gap-2 px-4 py-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+          <div className="hidden lg:grid lg:grid-cols-[2fr_1fr_1fr_0.9fr_0.9fr_1fr_auto] gap-2 px-4 py-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">
             <span>Descripción</span>
             <span className="text-right">Trabajador</span>
-            <span className="text-right">Precio Trabajador</span>
-            <span className="text-right">Markup %</span>
-            <span className="text-right">Ganancia</span>
-            <span className="text-right">Precio Final</span>
+            <span className="text-right">Costo MO</span>
             <span className="text-right">Pagado</span>
             <span className="text-right">Pendiente</span>
             <span className="text-right">Factura</span>
@@ -745,7 +704,7 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
                 >
                   {/* ── Accordion Trigger (row) ──────────────────────────────── */}
                   <AccordionTrigger className="px-4 py-3 hover:no-underline hover:bg-muted/30 rounded-t-lg">
-                    <div className="grid w-full grid-cols-2 lg:grid-cols-[2fr_1fr_1fr_0.7fr_0.9fr_1fr_0.9fr_0.9fr_1fr_auto] gap-2 items-center text-sm text-left">
+                    <div className="grid w-full grid-cols-2 lg:grid-cols-[2fr_1fr_1fr_0.9fr_0.9fr_1fr_auto] gap-2 items-center text-sm text-left">
                       {/* Description */}
                       <span className="font-medium truncate">{cost.description}</span>
 
@@ -754,24 +713,9 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
                         {cost.worker?.name ?? '-'}
                       </span>
 
-                      {/* Worker Price */}
+                      {/* Costo MO */}
                       <span className="text-right whitespace-nowrap hidden lg:block">
                         {formatARS(cost.workerPrice)}
-                      </span>
-
-                      {/* Markup % */}
-                      <span className="text-right hidden lg:block">
-                        {cost.markupPercentage}%
-                      </span>
-
-                      {/* Ganancia */}
-                      <span className="text-right whitespace-nowrap hidden lg:block text-muted-foreground">
-                        {formatARS(cost.markupAmount)}
-                      </span>
-
-                      {/* Final Price */}
-                      <span className="text-right whitespace-nowrap hidden lg:block font-semibold">
-                        {formatARS(cost.finalPrice)}
                       </span>
 
                       {/* Paid */}
@@ -888,16 +832,8 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
                         <span className="font-medium">{cost.worker?.name ?? '-'}</span>
                       </div>
                       <div>
-                        <span className="text-muted-foreground">Precio Trabajador: </span>
+                        <span className="text-muted-foreground">Costo MO: </span>
                         <span className="font-medium">{formatARS(cost.workerPrice)}</span>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Markup: </span>
-                        <span className="font-medium">{cost.markupPercentage}% ({formatARS(cost.markupAmount)})</span>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Precio Final: </span>
-                        <span className="font-semibold">{formatARS(cost.finalPrice)}</span>
                       </div>
                       <div>
                         <span className="text-muted-foreground">Pagado: </span>
@@ -1127,49 +1063,19 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
               )}
             </div>
 
-            {/* Worker Price & Markup */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="lc-worker-price">Precio Trabajador *</Label>
-                <Input
-                  id="lc-worker-price"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  placeholder="0.00"
-                  value={formWorkerPrice}
-                  onChange={(e) => setFormWorkerPrice(e.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="lc-markup">Markup % *</Label>
-                <Input
-                  id="lc-markup"
-                  type="number"
-                  step="0.1"
-                  min="0"
-                  placeholder="20"
-                  value={formMarkupPercentage}
-                  onChange={(e) => setFormMarkupPercentage(e.target.value)}
-                />
-              </div>
+            {/* Worker Price */}
+            <div className="space-y-2">
+              <Label htmlFor="lc-worker-price">Precio Trabajador *</Label>
+              <Input
+                id="lc-worker-price"
+                type="number"
+                step="0.01"
+                min="0"
+                placeholder="0.00"
+                value={formWorkerPrice}
+                onChange={(e) => setFormWorkerPrice(e.target.value)}
+              />
             </div>
-
-            {/* Auto-calculated preview */}
-            {(parsedWorkerPrice > 0 || parsedMarkup > 0) && (
-              <div className="rounded-lg border bg-muted/50 p-3 space-y-1.5 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Ganancia (markup):</span>
-                  <span className="font-medium">
-                    {formatARS(computedMarkupAmount)}
-                  </span>
-                </div>
-                <div className="flex justify-between text-base">
-                  <span className="font-medium">Precio final:</span>
-                  <span className="font-bold">{formatARS(computedFinalPrice)}</span>
-                </div>
-              </div>
-            )}
 
             {/* Invoice selector */}
             <div className="space-y-2">

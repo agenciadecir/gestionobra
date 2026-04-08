@@ -195,7 +195,7 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
 
   const totalMOVinculadaFacturas = activeInvoices.reduce((sum, inv) => {
     const laborTotal = (inv.laborCosts ?? []).reduce(
-      (lSum, lc) => lSum + lc.finalPrice,
+      (lSum, lc) => lSum + lc.workerPrice,
       0
     );
     return sum + laborTotal;
@@ -214,10 +214,7 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
     (invoice.materials ?? []).reduce((sum, m) => sum + m.totalCost, 0);
 
   const getInvoiceLaborCostsTotal = (invoice: Invoice) =>
-    (invoice.laborCosts ?? []).reduce((sum, lc) => sum + lc.finalPrice, 0);
-
-  const getInvoiceLaborCostsMarkupTotal = (invoice: Invoice) =>
-    (invoice.laborCosts ?? []).reduce((sum, lc) => sum + lc.markupAmount, 0);
+    (invoice.laborCosts ?? []).reduce((sum, lc) => sum + lc.workerPrice, 0);
 
   // ── Handlers ──
   const handleCreateInvoice = async () => {
@@ -530,7 +527,6 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
             const laborCosts = invoice.laborCosts ?? [];
             const materialsTotal = getInvoiceMaterialsTotal(invoice);
             const laborCostsTotal = getInvoiceLaborCostsTotal(invoice);
-            const laborCostsMarkupTotal = getInvoiceLaborCostsMarkupTotal(invoice);
             const hasMaterials = materials.length > 0;
             const hasLaborCosts = laborCosts.length > 0;
             const hasLinkedItems = hasMaterials || hasLaborCosts;
@@ -774,17 +770,8 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
                                   </div>
                                   <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                                     <span>
-                                      Precio trabajador:{' '}
+                                      Costo MO:{' '}
                                       {formatMoney(lc.workerPrice)}
-                                    </span>
-                                    <span>&bull;</span>
-                                    <span>
-                                      Markup: {lc.markupPercentage}%
-                                    </span>
-                                    <span>&bull;</span>
-                                    <span className="font-semibold text-indigo-700 dark:text-indigo-400">
-                                      Precio final:{' '}
-                                      {formatMoney(lc.finalPrice)}
                                     </span>
                                   </div>
                                 </div>
@@ -797,14 +784,6 @@ export default function InvoicesTab({ project, onRefresh }: InvoicesTabProps) {
 
                           <Separator className="my-1.5" />
                           <div className="space-y-1">
-                            <div className="flex items-center justify-between">
-                              <span className="text-sm font-semibold text-indigo-700 dark:text-indigo-300">
-                                Ganancia por markup
-                              </span>
-                              <span className="text-sm font-bold text-green-600 dark:text-green-400">
-                                +{formatMoney(laborCostsMarkupTotal)}
-                              </span>
-                            </div>
                             <div className="flex items-center justify-between">
                               <span className="text-sm font-semibold text-indigo-700 dark:text-indigo-300">
                                 Total MO

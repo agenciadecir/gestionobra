@@ -152,18 +152,15 @@ model Material {
 // ==================== COSTOS MANO DE OBRA ====================
 
 model LaborCost {
-  id               String   @id @default(cuid())
-  projectId        String
-  workerId         String
-  invoiceId        String?  // Factura a la que está asignado este costo MO (null = pendiente de facturar)
-  description      String
-  workerPrice      Float    @default(0) // Precio que cobra el trabajador
-  markupPercentage Float    @default(0) // Porcentaje de ganancia
-  markupAmount     Float    @default(0) // Valor agregado (mi ganancia)
-  finalPrice       Float    @default(0) // Precio final al cliente (workerPrice + markupAmount)
-  notes            String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  id          String   @id @default(cuid())
+  projectId   String
+  workerId    String
+  invoiceId   String?  // Factura a la que está asignado este costo MO (null = pendiente de facturar)
+  description String
+  workerPrice Float    @default(0) // Costo real que se le paga al trabajador
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   project        Project         @relation(fields: [projectId], references: [id])
   worker         Worker          @relation(fields: [workerId], references: [id])

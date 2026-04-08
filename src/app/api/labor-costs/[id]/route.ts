@@ -18,15 +18,6 @@ export async function PUT(
       );
     }
 
-    const workerPrice =
-      body.workerPrice !== undefined ? body.workerPrice : existing.workerPrice;
-    const markupPercentage =
-      body.markupPercentage !== undefined
-        ? body.markupPercentage
-        : existing.markupPercentage;
-    const markupAmount = workerPrice * (markupPercentage / 100);
-    const finalPrice = workerPrice + markupAmount;
-
     const updated = await db.laborCost.update({
       where: { id },
       data: {
@@ -34,10 +25,8 @@ export async function PUT(
         invoiceId: body.invoiceId !== undefined ? (body.invoiceId || null) : undefined,
         description:
           body.description !== undefined ? body.description : undefined,
-        workerPrice,
-        markupPercentage,
-        markupAmount,
-        finalPrice,
+        workerPrice:
+          body.workerPrice !== undefined ? body.workerPrice : undefined,
         notes: body.notes !== undefined ? body.notes : undefined,
       },
       include: {

@@ -122,10 +122,7 @@ export type LaborCost = {
   workerId: string;
   invoiceId?: string;
   description: string;
-  workerPrice: number;
-  markupPercentage: number;
-  markupAmount: number;
-  finalPrice: number;
+  workerPrice: number; // Costo real que se le paga al trabajador
   notes?: string;
   createdAt: string;
   updatedAt: string;

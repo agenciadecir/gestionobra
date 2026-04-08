@@ -39,28 +39,20 @@ export async function POST(
     const { id } = await params;
     const body = await request.json();
 
-    if (!body.description || !body.workerId) {
+    if (!body.description) {
       return NextResponse.json(
-        { error: "La descripción y el trabajador son obligatorios" },
+        { error: "La descripción es obligatoria" },
         { status: 400 }
       );
     }
 
-    const workerPrice = body.workerPrice || 0;
-    const markupPercentage = body.markupPercentage || 0;
-    const markupAmount = workerPrice * (markupPercentage / 100);
-    const finalPrice = workerPrice + markupAmount;
-
     const laborCost = await db.laborCost.create({
       data: {
         projectId: id,
-        workerId: body.workerId,
+        workerId: body.workerId || null,
         invoiceId: body.invoiceId || null,
         description: body.description,
-        workerPrice,
-        markupPercentage,
-        markupAmount,
-        finalPrice,
+        workerPrice: body.workerPrice || 0,
         notes: body.notes || null,
       },
       include: {
