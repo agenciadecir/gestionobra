@@ -26,6 +26,12 @@ import {
   StickyNote,
   Clock,
   AlertTriangle,
+  ArrowDownRight,
+  ArrowUpRight,
+  ArrowRightLeft,
+  CircleCheck,
+  CircleX,
+  PiggyBank,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -244,27 +250,50 @@ export default function ProjectDetail() {
     project?.workerPayments?.reduce((sum, wp) => sum + wp.amount, 0) ?? 0;
   const saldoPendienteTrabajadores = totalMOTrabajador - totalPagadoTrabajadores;
 
-  // Materials
+  // Materials — de mi bolsillo
   const totalMaterialesCompradosPorMi =
     project?.materials?.filter((m) => m.purchasedBy === 'YO').reduce((sum, m) => sum + m.totalCost, 0) ?? 0;
   const totalReintegros =
     project?.materials?.filter((m) => m.purchasedBy === 'TRABAJADOR' && m.reimbursed).reduce((sum, m) => sum + m.totalCost, 0) ?? 0;
-  const materialesSinFacturar =
-    project?.materials?.filter((m) => (m.purchasedBy === 'YO' || m.purchasedBy === 'TRABAJADOR') && !m.invoiceId).reduce((sum, m) => sum + m.totalCost, 0) ?? 0;
-  const materialesSinFacturarCount =
-    project?.materials?.filter((m) => (m.purchasedBy === 'YO' || m.purchasedBy === 'TRABAJADOR') && !m.invoiceId).length ?? 0;
   const pendienteReintegro =
     project?.materials?.filter((m) => m.purchasedBy === 'TRABAJADOR' && !m.reimbursed).reduce((sum, m) => sum + m.totalCost, 0) ?? 0;
 
-  // Total materiales que salen de mi bolsillo
+  // Total materiales que salen de mi bolsillo (comprados por mí + reintegrados a trabajadores)
   const totalCostoMateriales = totalMaterialesCompradosPorMi + totalReintegros;
 
+  // ── MATERIALES TRASLADADOS vs SIN TRASLADAR ──
+  // Materiales que compré y ya están vinculados a una factura = pasamano (neutros)
+  const materialesCompradosPorMiTraslados =
+    project?.materials?.filter((m) => m.purchasedBy === 'YO' && m.invoiceId).reduce((sum, m) => sum + m.totalCost, 0) ?? 0;
+  // Materiales que compré y NO están vinculados = loss
+  const materialesCompradosPorMiSinTrasladar =
+    project?.materials?.filter((m) => m.purchasedBy === 'YO' && !m.invoiceId).reduce((sum, m) => sum + m.totalCost, 0) ?? 0;
+  const materialesCompradosPorMiSinTrasladarCount =
+    project?.materials?.filter((m) => m.purchasedBy === 'YO' && !m.invoiceId).length ?? 0;
+  // Reintegros trasladados al cliente
+  const reintegrosTraslados =
+    project?.materials?.filter((m) => m.purchasedBy === 'TRABAJADOR' && m.reimbursed && m.invoiceId).reduce((sum, m) => sum + m.totalCost, 0) ?? 0;
+  // Reintegros sin trasladar
+  const reintegrosSinTrasladar =
+    project?.materials?.filter((m) => m.purchasedBy === 'TRABAJADOR' && m.reimbursed && !m.invoiceId).reduce((sum, m) => sum + m.totalCost, 0) ?? 0;
+  // Totales
+  const materialesTraslados = materialesCompradosPorMiTraslados + reintegrosTraslados;
+  const materialesSinTrasladar = materialesCompradosPorMiSinTrasladar + reintegrosSinTrasladar;
+
   // ── GANANCIA REAL ──
-  // Costos totales de la obra (todo lo que voy a pagar)
-  const totalCostosObra = totalMOTrabajador + totalCostoMateriales;
-  // Ganancia proyectada al cerrar la obra = Facturado total - Todos los costos
-  const gananciaProyectada = totalFacturado - totalCostosObra;
-  // Dinero que tengo disponible AHORA = Cobrado - Pagos realizados - Materiales pagados
+  // La factura ya incluye el costo de materiales trasladados.
+  // Si el material fue trasladado al cliente (vinculado a factura),
+  // su costo está DENTRO del monto facturado → se cancela.
+  // Solo los materiales SIN trasladar son una pérdida real.
+  //
+  // Ganancia = Facturado − Costo MO − Materiales SIN trasladar
+  //
+  // Explicación: Facturado ya tiene los materiales trasladados adentro,
+  // así que no hace falta restarlos. Solo restamos los que NO pudimos cobrar.
+  const gananciaRealProyectada = totalFacturado - totalMOTrabajador - materialesSinTrasladar;
+  // Si trasladás todos los materiales: ganancia máxima
+  const gananciaMaxima = totalFacturado - totalMOTrabajador;
+  // Dinero que tengo disponible AHORA = Cobrado − Pagado a trabajadores − Materiales pagados de mi bolsillo
   const dineroDisponible = totalCobrado - totalPagadoTrabajadores - totalMaterialesCompradosPorMi - totalReintegros;
 
   // ── Loading skeleton ─────────────────────────────────────────────────────
@@ -300,7 +329,16 @@ export default function ProjectDetail() {
 
   // ── Summary cards data ───────────────────────────────────────────────────
 
-  const summaryCards = [
+  type SummaryCard = {
+    label: string;
+    value: string;
+    icon: React.ComponentType<{ className?: string }>;
+    color: string;
+    bg: string;
+    sublabel?: string;
+  };
+
+  const summaryCards: SummaryCard[] = [
     {
       label: 'Facturado',
       value: fmtMoney(totalFacturado),
@@ -316,21 +354,14 @@ export default function ProjectDetail() {
       bg: 'bg-green-50',
     },
     {
-      label: 'Saldo Cliente',
-      value: fmtMoney(saldoPendienteCliente),
-      icon: Wallet,
-      color: saldoPendienteCliente > 0 ? 'text-red-600' : 'text-green-600',
-      bg: saldoPendienteCliente > 0 ? 'bg-red-50' : 'bg-green-50',
-    },
-    {
-      label: 'Costo Total MO',
+      label: 'Costo MO',
       value: fmtMoney(totalMOTrabajador),
       icon: HardHat,
       color: 'text-purple-600',
       bg: 'bg-purple-50',
     },
     {
-      label: 'Pagado al Trabajador',
+      label: 'Pagado Trabajador',
       value: fmtMoney(totalPagadoTrabajadores),
       icon: HardHat,
       color: 'text-orange-600',
@@ -344,11 +375,20 @@ export default function ProjectDetail() {
       bg: saldoPendienteTrabajadores > 0 ? 'bg-red-50' : 'bg-green-50',
     },
     {
-      label: 'Gastado Materiales',
-      value: fmtMoney(totalCostoMateriales),
-      icon: Package,
-      color: 'text-amber-600',
-      bg: 'bg-amber-50',
+      label: 'Mat. Trasladados',
+      sublabel: 'En factura (neutro)',
+      value: fmtMoney(materialesTraslados),
+      icon: CircleCheck,
+      color: 'text-emerald-600',
+      bg: 'bg-emerald-50',
+    },
+    {
+      label: 'Mat. Sin Trasladar',
+      sublabel: '¡Sin cobrar!',
+      value: fmtMoney(materialesSinTrasladar),
+      icon: materialesSinTrasladar > 0 ? AlertTriangle : CircleCheck,
+      color: materialesSinTrasladar > 0 ? 'text-red-600' : 'text-green-600',
+      bg: materialesSinTrasladar > 0 ? 'bg-red-50' : 'bg-green-50',
     },
     {
       label: 'Pendiente Reintegro',
@@ -359,6 +399,11 @@ export default function ProjectDetail() {
     },
   ];
 
+  // Items sin facturar = MO sin facturar + materiales sin trasladar (purchasedBy YO o TRABAJADOR, sin invoiceId)
+  const materialesSinFacturarCount =
+    project?.materials?.filter((m) => (m.purchasedBy === 'YO' || m.purchasedBy === 'TRABAJADOR') && !m.invoiceId).length ?? 0;
+  const materialesSinFacturar =
+    project?.materials?.filter((m) => (m.purchasedBy === 'YO' || m.purchasedBy === 'TRABAJADOR') && !m.invoiceId).reduce((sum, m) => sum + m.totalCost, 0) ?? 0;
   const sinFacturarCount = moSinFacturarCount + materialesSinFacturarCount;
 
   // ── Render ───────────────────────────────────────────────────────────────
@@ -648,68 +693,146 @@ export default function ProjectDetail() {
           <div className="mb-6 rounded-xl border bg-card p-6">
             <h3 className="mb-5 text-lg font-semibold">Resultado de la Obra</h3>
 
-            <div className="grid gap-4 md:grid-cols-2">
-              {/* ── GANANCIA PROYECTADA ── */}
-              <div className={`rounded-xl border-2 p-5 ${gananciaProyectada >= 0 ? 'border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/40' : 'border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/40'}`}>
-                <p className="mb-1 text-sm font-medium text-muted-foreground">Ganancia proyectada al cerrar la obra</p>
-                <p className={`text-3xl font-bold ${gananciaProyectada >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400'}`}>
-                  {fmtMoney(gananciaProyectada)}
+            {/* ── GANANCIA REAL (destacada) ── */}
+            <div className={`mb-5 rounded-xl border-2 p-5 ${gananciaRealProyectada >= 0 ? 'border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/40' : 'border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/40'}`}>
+              <div className="flex items-center gap-2 mb-1">
+                <TrendingUp className={`size-4 ${gananciaRealProyectada >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`} />
+                <p className="text-sm font-medium text-muted-foreground">Ganancia real proyectada</p>
+              </div>
+              <p className={`text-3xl font-bold ${gananciaRealProyectada >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400'}`}>
+                {fmtMoney(gananciaRealProyectada)}
+              </p>
+              <div className="mt-3 space-y-1.5 text-xs text-muted-foreground">
+                <div className="flex justify-between">
+                  <span>Total facturado al cliente</span>
+                  <span className="font-medium text-foreground">{fmtMoney(totalFacturado)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="flex items-center gap-1"><ArrowDownRight className="size-3 text-red-500" /> − Costo MO (trabajador)</span>
+                  <span className="font-medium text-foreground">− {fmtMoney(totalMOTrabajador)}</span>
+                </div>
+                {materialesSinTrasladar > 0 && (
+                  <div className="flex justify-between">
+                    <span className="flex items-center gap-1"><ArrowDownRight className="size-3 text-red-500" /> − Materiales sin trasladar al cliente</span>
+                    <span className="font-medium text-red-600 dark:text-red-400">− {fmtMoney(materialesSinTrasladar)}</span>
+                  </div>
+                )}
+                {materialesTraslados > 0 && (
+                  <div className="flex justify-between text-emerald-600 dark:text-emerald-400">
+                    <span className="flex items-center gap-1"><CircleCheck className="size-3" /> Materiales trasladados (ya en factura)</span>
+                    <span className="font-medium">{fmtMoney(materialesTraslados)} (neutro)</span>
+                  </div>
+                )}
+                <Separator className="my-1" />
+                <div className="flex justify-between text-sm font-semibold">
+                  <span>Ganancia = Facturado − Costo MO − Mat. sin trasladar</span>
+                  <span className={gananciaRealProyectada >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400'}>
+                    {fmtMoney(gananciaRealProyectada)}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* ── FLUJO DE PLATA ── */}
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {/* Dinero disponible ahora */}
+              <div className={`rounded-xl border-2 p-5 ${dineroDisponible >= 0 ? 'border-sky-200 bg-sky-50 dark:border-sky-800 dark:bg-sky-950/40' : 'border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/40'}`}>
+                <div className="flex items-center gap-2 mb-1">
+                  <PiggyBank className={`size-4 ${dineroDisponible >= 0 ? 'text-sky-600 dark:text-sky-400' : 'text-red-600 dark:text-red-400'}`} />
+                  <p className="text-sm font-medium text-muted-foreground">Dinero en tu bolsillo ahora</p>
+                </div>
+                <p className={`text-2xl font-bold ${dineroDisponible >= 0 ? 'text-sky-700 dark:text-sky-400' : 'text-red-700 dark:text-red-400'}`}>
+                  {fmtMoney(dineroDisponible)}
                 </p>
-                <div className="mt-3 space-y-1 text-xs text-muted-foreground">
+                <div className="mt-2 space-y-1 text-xs text-muted-foreground">
                   <div className="flex justify-between">
-                    <span>Total facturado</span>
-                    <span className="font-medium text-foreground">{fmtMoney(totalFacturado)}</span>
+                    <span className="flex items-center gap-1"><ArrowUpRight className="size-3 text-green-500" /> Cobré del cliente</span>
+                    <span className="font-medium text-foreground">+ {fmtMoney(totalCobrado)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span>− Costo MO (total trabajador)</span>
-                    <span className="font-medium text-foreground">− {fmtMoney(totalMOTrabajador)}</span>
+                    <span className="flex items-center gap-1"><ArrowDownRight className="size-3 text-red-500" /> − Pagué al trabajador</span>
+                    <span className="font-medium text-foreground">− {fmtMoney(totalPagadoTrabajadores)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span>− Costo materiales (míos + reintegros)</span>
+                    <span className="flex items-center gap-1"><ArrowDownRight className="size-3 text-red-500" /> − Pagué materiales</span>
                     <span className="font-medium text-foreground">− {fmtMoney(totalCostoMateriales)}</span>
                   </div>
                 </div>
               </div>
 
-              {/* ── DINERO DISPONIBLE AHORA ── */}
-              <div className={`rounded-xl border-2 p-5 ${dineroDisponible >= 0 ? 'border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/40' : 'border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/40'}`}>
-                <p className="mb-1 text-sm font-medium text-muted-foreground">Dinero disponible ahora</p>
-                <p className={`text-3xl font-bold ${dineroDisponible >= 0 ? 'text-blue-700 dark:text-blue-400' : 'text-red-700 dark:text-red-400'}`}>
-                  {fmtMoney(dineroDisponible)}
-                </p>
-                <div className="mt-3 space-y-1 text-xs text-muted-foreground">
-                  <div className="flex justify-between">
-                    <span>Lo que cobré</span>
-                    <span className="font-medium text-foreground">+ {fmtMoney(totalCobrado)}</span>
+              {/* Obligaciones pendientes */}
+              <div className="rounded-xl border-2 border-orange-200 bg-orange-50 p-5 dark:border-orange-800 dark:bg-orange-950/40">
+                <div className="flex items-center gap-2 mb-1">
+                  <Clock className="size-4 text-orange-600 dark:text-orange-400" />
+                  <p className="text-sm font-medium text-muted-foreground">Obligaciones pendientes</p>
+                </div>
+                <div className="mt-2 space-y-3">
+                  <div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Me falta cobrar del cliente</span>
+                      <span className={`font-semibold ${saldoPendienteCliente > 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>
+                        {fmtMoney(saldoPendienteCliente)}
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex justify-between">
-                    <span>− Ya pagué al trabajador</span>
-                    <span className="font-medium text-foreground">− {fmtMoney(totalPagadoTrabajadores)}</span>
+                  <Separator />
+                  <div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Me falta pagar al trabajador</span>
+                      <span className={`font-semibold ${saldoPendienteTrabajadores > 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>
+                        {fmtMoney(saldoPendienteTrabajadores)}
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex justify-between">
-                    <span>− Materiales + reintegros pagados</span>
-                    <span className="font-medium text-foreground">− {fmtMoney(totalMaterialesCompradosPorMi + totalReintegros)}</span>
+                  <Separator />
+                  <div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Reintegros pendientes a trabajadores</span>
+                      <span className={`font-semibold ${pendienteReintegro > 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>
+                        {fmtMoney(pendienteReintegro)}
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
 
-            {/* ── Saldos pendientes ── */}
-            <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              <div className="rounded-lg bg-muted/50 p-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Me falta cobrar</span>
-                  <span className={`text-sm font-semibold ${saldoPendienteCliente > 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>
-                    {fmtMoney(saldoPendienteCliente)}
-                  </span>
+              {/* Materiales: trasladados vs sin trasladar */}
+              <div className="rounded-xl border-2 border-violet-200 bg-violet-50 p-5 dark:border-violet-800 dark:bg-violet-950/40">
+                <div className="flex items-center gap-2 mb-1">
+                  <Package className="size-4 text-violet-600 dark:text-violet-400" />
+                  <p className="text-sm font-medium text-muted-foreground">Materiales (de tu bolsillo)</p>
                 </div>
-              </div>
-              <div className="rounded-lg bg-muted/50 p-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Me falta pagar (trabajador)</span>
-                  <span className={`text-sm font-semibold ${saldoPendienteTrabajadores > 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>
-                    {fmtMoney(saldoPendienteTrabajadores)}
-                  </span>
+                <p className="text-lg font-bold text-foreground">{fmtMoney(totalCostoMateriales)}</p>
+                <div className="mt-2 space-y-3">
+                  <div>
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <CircleCheck className="size-3.5 text-emerald-500" />
+                      <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400">Trasladados al cliente</span>
+                    </div>
+                    <p className="text-sm font-semibold text-emerald-600 dark:text-emerald-400 pl-5">
+                      {fmtMoney(materialesTraslados)}
+                      <span className="ml-1 text-xs font-normal text-muted-foreground">(ya en factura, se cancela)</span>
+                    </p>
+                  </div>
+                  <Separator />
+                  <div>
+                    <div className="flex items-center gap-1.5 mb-1">
+                      {materialesSinTrasladar > 0 ? (
+                        <AlertTriangle className="size-3.5 text-red-500" />
+                      ) : (
+                        <CircleCheck className="size-3.5 text-emerald-500" />
+                      )}
+                      <span className={`text-xs font-medium ${materialesSinTrasladar > 0 ? 'text-red-700 dark:text-red-400' : 'text-emerald-700 dark:text-emerald-400'}`}>
+                        Sin trasladar
+                      </span>
+                    </div>
+                    <p className={`text-sm font-semibold pl-5 ${materialesSinTrasladar > 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                      {fmtMoney(materialesSinTrasladar)}
+                      {materialesSinTrasladar > 0 && (
+                        <span className="ml-1 text-xs font-normal text-muted-foreground">(¡pagaste y no cobrás!)</span>
+                      )}
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
@@ -730,6 +853,9 @@ export default function ProjectDetail() {
                     <div className="min-w-0">
                       <p className="truncate text-xs text-muted-foreground">
                         {card.label}
+                        {card.sublabel && (
+                          <span className="ml-1 text-[10px] opacity-60">({card.sublabel})</span>
+                        )}
                       </p>
                       <p className="truncate text-sm font-semibold">{card.value}</p>
                     </div>

@@ -78,3 +78,23 @@ Stage Summary:
 - LaborCost now stores only real costs paid to the worker (workerPrice)
 - Summary shows "MO Presupuestada" vs "Costo real trabajador" with difference = ganancia
 - No more duplicate markup entries anywhere in the system
+
+---
+Task ID: 1
+Agent: Main
+Task: Rediseñar flujo de materiales y ganancia real en ProjectDetail
+
+Work Log:
+- Analizó el problema: materiales comprados por el usuario se descuentan de la ganancia pero no se retribuyen al cliente
+- Separó materiales en "trasladados" (vinculados a factura = pasamano, neutro) vs "sin trasladar" (pérdida real)
+- Nueva fórmula de ganancia: Facturado − Costo MO − Materiales SIN trasladar
+- Reescribió sección "Resultado de la Obra" con 4 paneles: Ganancia Real, Dinero en bolsillo, Obligaciones pendientes, Materiales (trasladados vs sin trasladar)
+- Actualizó KPI cards: Mat. Trasladados (en factura, neutro) y Mat. Sin Trasladar (¡sin cobrar!)
+- Agregó iconos ArrowDownRight/ArrowUpRight/CircleCheck/CircleX/PiggyBank para mejor UX
+- 0 errores de lint, servidor corriendo correctamente
+
+Stage Summary:
+- La ganancia ya NO descuenta materiales que ya están en la factura
+- Solo los materiales SIN trasladar se restan como pérdida
+- Los materiales trasladados se marcan como "neutros" (el usuario pagó y ya lo cobró en la factura)
+- Panel de materiales ahora muestra claramente trasladados vs sin trasladar con alertas visuales
