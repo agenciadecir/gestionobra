@@ -753,72 +753,107 @@ export default function LaborCostsTab({ project, onRefresh }: LaborCostsTabProps
                         )}
                       </span>
 
-                      {/* Actions */}
+                      {/* Actions — use span instead of Button to avoid nested <button> inside AccordionTrigger */}
                       <div className="hidden lg:flex justify-end gap-1">
                         {canLink(cost) && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="size-8 text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-900/20"
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            className="inline-flex items-center justify-center size-8 rounded-md text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-900/20 cursor-pointer transition-colors"
                             onClick={(e) => {
                               e.stopPropagation();
                               openLinkDialog(cost);
                             }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                openLinkDialog(cost);
+                              }
+                            }}
                             title="Vincular a factura"
                           >
                             <Link2 className="size-4" />
-                          </Button>
+                          </span>
                         )}
                         {canUnlink(cost) && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="size-8 text-muted-foreground hover:text-destructive"
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            className="inline-flex items-center justify-center size-8 rounded-md text-muted-foreground hover:text-destructive hover:bg-muted/50 cursor-pointer transition-colors"
                             onClick={(e) => {
                               e.stopPropagation();
                               handleUnlinkInvoice(cost);
                             }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                handleUnlinkInvoice(cost);
+                              }
+                            }}
                             title="Desvincular factura"
                           >
                             <Unlink className="size-4" />
-                          </Button>
+                          </span>
                         )}
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-8 text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-900/20"
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          className="inline-flex items-center justify-center size-8 rounded-md text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-900/20 cursor-pointer transition-colors"
                           onClick={(e) => {
                             e.stopPropagation();
                             openPaymentDialog(cost);
                           }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              openPaymentDialog(cost);
+                            }
+                          }}
                           title="Registrar Pago"
                         >
                           <Banknote className="size-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-8"
+                        </span>
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          className="inline-flex items-center justify-center size-8 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 cursor-pointer transition-colors"
                           onClick={(e) => {
                             e.stopPropagation();
                             openEditDialog(cost);
                           }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              openEditDialog(cost);
+                            }
+                          }}
                           title="Editar"
                         >
                           <Edit className="size-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-8 text-destructive hover:text-destructive"
+                        </span>
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          className="inline-flex items-center justify-center size-8 rounded-md text-destructive hover:text-destructive hover:bg-red-50 dark:hover:bg-red-900/20 cursor-pointer transition-colors"
                           onClick={(e) => {
                             e.stopPropagation();
                             openDeleteCostDialog(cost);
                           }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              openDeleteCostDialog(cost);
+                            }
+                          }}
                           title="Eliminar"
                         >
                           <Trash2 className="size-4" />
-                        </Button>
+                        </span>
                       </div>
                     </div>
                   </AccordionTrigger>
