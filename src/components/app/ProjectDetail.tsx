@@ -21,7 +21,6 @@ import {
   HardHat,
   CheckSquare,
   TrendingUp,
-  Calculator,
   Wallet,
   Banknote,
   StickyNote,
@@ -219,12 +218,6 @@ export default function ProjectDetail() {
 
   // ── Summary calculations ─────────────────────────────────────────────────
 
-  // From budgets (approved)
-  const totalPresupuestado =
-    project?.budgets
-      ?.filter((b) => b.status === 'APROBADO')
-      .reduce((sum, b) => sum + b.totalAmount, 0) ?? 0;
-
   // From invoices (non-ANULADA)
   const totalFacturado =
     project?.invoices
@@ -246,12 +239,6 @@ export default function ProjectDetail() {
   const moSinFacturar = project?.laborCosts?.filter((l) => !l.invoiceId).reduce((sum, l) => sum + l.workerPrice, 0) ?? 0;
   const moSinFacturarCount = project?.laborCosts?.filter((l) => !l.invoiceId).length ?? 0;
 
-  // MO presupuestada (desde presupuestos aprobados, items de categoria MANO_DE_OBRA)
-  const totalMOPresupuestada =
-    project?.budgets
-      ?.filter((b) => b.status === 'APROBADO')
-      .reduce((sum, b) => sum + (b.items ?? []).filter((i) => i.category === 'MANO_DE_OBRA').reduce((s, i) => s + i.totalPrice, 0), 0) ?? 0;
-
   // Worker payments
   const totalPagadoTrabajadores =
     project?.workerPayments?.reduce((sum, wp) => sum + wp.amount, 0) ?? 0;
@@ -269,10 +256,16 @@ export default function ProjectDetail() {
   const pendienteReintegro =
     project?.materials?.filter((m) => m.purchasedBy === 'TRABAJADOR' && !m.reimbursed).reduce((sum, m) => sum + m.totalCost, 0) ?? 0;
 
-  // My total costs = paid to workers + materials bought by me + reimbursements
-  const totalMisCostos = totalPagadoTrabajadores + totalMaterialesCompradosPorMi + totalReintegros;
-  // Gross profit = money received from client - my total costs
-  const gananciaBruta = totalCobrado - totalMisCostos;
+  // Total materiales que salen de mi bolsillo
+  const totalCostoMateriales = totalMaterialesCompradosPorMi + totalReintegros;
+
+  // ── GANANCIA REAL ──
+  // Costos totales de la obra (todo lo que voy a pagar)
+  const totalCostosObra = totalMOTrabajador + totalCostoMateriales;
+  // Ganancia proyectada al cerrar la obra = Facturado total - Todos los costos
+  const gananciaProyectada = totalFacturado - totalCostosObra;
+  // Dinero que tengo disponible AHORA = Cobrado - Pagos realizados - Materiales pagados
+  const dineroDisponible = totalCobrado - totalPagadoTrabajadores - totalMaterialesCompradosPorMi - totalReintegros;
 
   // ── Loading skeleton ─────────────────────────────────────────────────────
 
@@ -308,14 +301,6 @@ export default function ProjectDetail() {
   // ── Summary cards data ───────────────────────────────────────────────────
 
   const summaryCards = [
-    // Row 1 – Dinero del cliente
-    {
-      label: 'Presupuestado',
-      value: fmtMoney(totalPresupuestado),
-      icon: Calculator,
-      color: 'text-blue-600',
-      bg: 'bg-blue-50',
-    },
     {
       label: 'Facturado',
       value: fmtMoney(totalFacturado),
@@ -337,11 +322,10 @@ export default function ProjectDetail() {
       color: saldoPendienteCliente > 0 ? 'text-red-600' : 'text-green-600',
       bg: saldoPendienteCliente > 0 ? 'bg-red-50' : 'bg-green-50',
     },
-    // Row 2 – Con el trabajador
     {
-      label: 'MO Presupuestada',
-      value: fmtMoney(totalMOPresupuestada),
-      icon: DollarSign,
+      label: 'Costo Total MO',
+      value: fmtMoney(totalMOTrabajador),
+      icon: HardHat,
       color: 'text-purple-600',
       bg: 'bg-purple-50',
     },
@@ -360,16 +344,8 @@ export default function ProjectDetail() {
       bg: saldoPendienteTrabajadores > 0 ? 'bg-red-50' : 'bg-green-50',
     },
     {
-      label: 'Diferencia MO',
-      value: fmtMoney(totalMOPresupuestada - totalMOTrabajador),
-      icon: TrendingUp,
-      color: (totalMOPresupuestada - totalMOTrabajador) >= 0 ? 'text-emerald-600' : 'text-red-600',
-      bg: (totalMOPresupuestada - totalMOTrabajador) >= 0 ? 'bg-emerald-50' : 'bg-red-50',
-    },
-    // Row 3 – Costos y Ganancia final
-    {
       label: 'Gastado Materiales',
-      value: fmtMoney(totalMaterialesCompradosPorMi + totalReintegros),
+      value: fmtMoney(totalCostoMateriales),
       icon: Package,
       color: 'text-amber-600',
       bg: 'bg-amber-50',
@@ -380,20 +356,6 @@ export default function ProjectDetail() {
       icon: AlertTriangle,
       color: pendienteReintegro > 0 ? 'text-red-600' : 'text-green-600',
       bg: pendienteReintegro > 0 ? 'bg-red-50' : 'bg-green-50',
-    },
-    {
-      label: 'Sin Facturar',
-      value: fmtMoney(moSinFacturar + materialesSinFacturar),
-      icon: AlertTriangle,
-      color: (moSinFacturar + materialesSinFacturar) > 0 ? 'text-red-600' : 'text-green-600',
-      bg: (moSinFacturar + materialesSinFacturar) > 0 ? 'bg-red-50' : 'bg-green-50',
-    },
-    {
-      label: 'Ganancia Bruta',
-      value: fmtMoney(gananciaBruta),
-      icon: TrendingUp,
-      color: gananciaBruta >= 0 ? 'text-emerald-600' : 'text-red-600',
-      bg: gananciaBruta >= 0 ? 'bg-emerald-50' : 'bg-red-50',
     },
   ];
 
@@ -682,117 +644,72 @@ export default function ProjectDetail() {
             </div>
           )}
 
-          {/* ── Flujo Financiero ── */}
+          {/* ── RESULTADO DE LA OBRA ── */}
           <div className="mb-6 rounded-xl border bg-card p-6">
-            <h3 className="mb-4 text-lg font-semibold">Flujo Financiero de la Obra</h3>
-            <div className="space-y-3 text-sm">
-              {/* Ingresos del cliente */}
-              <div className="rounded-lg bg-green-50 p-4 dark:bg-green-950/30">
-                <p className="mb-2 font-semibold text-green-800 dark:text-green-300">💰 Ingresos del Cliente</p>
-                <div className="space-y-1">
+            <h3 className="mb-5 text-lg font-semibold">Resultado de la Obra</h3>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              {/* ── GANANCIA PROYECTADA ── */}
+              <div className={`rounded-xl border-2 p-5 ${gananciaProyectada >= 0 ? 'border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/40' : 'border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/40'}`}>
+                <p className="mb-1 text-sm font-medium text-muted-foreground">Ganancia proyectada al cerrar la obra</p>
+                <p className={`text-3xl font-bold ${gananciaProyectada >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400'}`}>
+                  {fmtMoney(gananciaProyectada)}
+                </p>
+                <div className="mt-3 space-y-1 text-xs text-muted-foreground">
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Total facturado (no anuladas)</span>
-                    <span className="font-medium">{fmtMoney(totalFacturado)}</span>
+                    <span>Total facturado</span>
+                    <span className="font-medium text-foreground">{fmtMoney(totalFacturado)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">− Cobrado</span>
-                    <span className="font-medium text-green-700">− {fmtMoney(totalCobrado)}</span>
+                    <span>− Costo MO (total trabajador)</span>
+                    <span className="font-medium text-foreground">− {fmtMoney(totalMOTrabajador)}</span>
                   </div>
-                  <Separator className="my-1.5" />
-                  <div className="flex justify-between font-semibold">
-                    <span>Saldo pendiente del cliente</span>
-                    <span className={saldoPendienteCliente > 0 ? 'text-red-600' : 'text-green-600'}>
-                      {fmtMoney(saldoPendienteCliente)}
-                    </span>
+                  <div className="flex justify-between">
+                    <span>− Costo materiales (míos + reintegros)</span>
+                    <span className="font-medium text-foreground">− {fmtMoney(totalCostoMateriales)}</span>
                   </div>
                 </div>
               </div>
 
-              {/* Costos de Mano de Obra */}
-              <div className="rounded-lg bg-purple-50 p-4 dark:bg-purple-950/30">
-                <p className="mb-2 font-semibold text-purple-800 dark:text-purple-300">👷 Mano de Obra</p>
-                <div className="space-y-1">
+              {/* ── DINERO DISPONIBLE AHORA ── */}
+              <div className={`rounded-xl border-2 p-5 ${dineroDisponible >= 0 ? 'border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/40' : 'border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/40'}`}>
+                <p className="mb-1 text-sm font-medium text-muted-foreground">Dinero disponible ahora</p>
+                <p className={`text-3xl font-bold ${dineroDisponible >= 0 ? 'text-blue-700 dark:text-blue-400' : 'text-red-700 dark:text-red-400'}`}>
+                  {fmtMoney(dineroDisponible)}
+                </p>
+                <div className="mt-3 space-y-1 text-xs text-muted-foreground">
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">MO presupuestada (al cliente)</span>
-                    <span className="font-medium">{fmtMoney(totalMOPresupuestada)}</span>
+                    <span>Lo que cobré</span>
+                    <span className="font-medium text-foreground">+ {fmtMoney(totalCobrado)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">→ Costo real trabajador</span>
-                    <span className="font-medium">{fmtMoney(totalMOTrabajador)}</span>
+                    <span>− Ya pagué al trabajador</span>
+                    <span className="font-medium text-foreground">− {fmtMoney(totalPagadoTrabajadores)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">→ Diferencia (ganancia MO)</span>
-                    <span className={`font-medium ${(totalMOPresupuestada - totalMOTrabajador) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                      {(totalMOPresupuestada - totalMOTrabajador) >= 0 ? '+' : ''}{fmtMoney(totalMOPresupuestada - totalMOTrabajador)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">→ Ya pagado al trabajador</span>
-                    <span className="font-medium text-orange-700">− {fmtMoney(totalPagadoTrabajadores)}</span>
-                  </div>
-                  <Separator className="my-1.5" />
-                  <div className="flex justify-between font-semibold">
-                    <span>Saldo pendiente al trabajador</span>
-                    <span className={saldoPendienteTrabajadores > 0 ? 'text-red-600' : 'text-green-600'}>
-                      {fmtMoney(saldoPendienteTrabajadores)}
-                    </span>
+                    <span>− Materiales + reintegros pagados</span>
+                    <span className="font-medium text-foreground">− {fmtMoney(totalMaterialesCompradosPorMi + totalReintegros)}</span>
                   </div>
                 </div>
               </div>
+            </div>
 
-              {/* Materiales */}
-              <div className="rounded-lg bg-amber-50 p-4 dark:bg-amber-950/30">
-                <p className="mb-2 font-semibold text-amber-800 dark:text-amber-300">📦 Materiales</p>
-                <div className="space-y-1">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Comprados por mí</span>
-                    <span className="font-medium">{fmtMoney(totalMaterialesCompradosPorMi)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Reintegros al trabajador (reintegrados)</span>
-                    <span className="font-medium">{fmtMoney(totalReintegros)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Pendiente de reintegro</span>
-                    <span className={pendienteReintegro > 0 ? 'font-medium text-red-600' : 'font-medium text-green-600'}>
-                      {fmtMoney(pendienteReintegro)}
-                    </span>
-                  </div>
-                  <Separator className="my-1.5" />
-                  <div className="flex justify-between font-semibold">
-                    <span>Total gastado en materiales</span>
-                    <span>{fmtMoney(totalMaterialesCompradosPorMi + totalReintegros)}</span>
-                  </div>
+            {/* ── Saldos pendientes ── */}
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <div className="rounded-lg bg-muted/50 p-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-muted-foreground">Me falta cobrar</span>
+                  <span className={`text-sm font-semibold ${saldoPendienteCliente > 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>
+                    {fmtMoney(saldoPendienteCliente)}
+                  </span>
                 </div>
               </div>
-
-              {/* Ganancia */}
-              <div className="rounded-lg border-2 border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-800 dark:bg-emerald-950/40">
-                <p className="mb-2 font-semibold text-emerald-800 dark:text-emerald-300">📊 Ganancia de la Obra</p>
-                <div className="space-y-1">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Dinero cobrado del cliente</span>
-                    <span className="font-medium text-green-700">+ {fmtMoney(totalCobrado)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">− Pagado a trabajadores</span>
-                    <span className="font-medium text-red-600">− {fmtMoney(totalPagadoTrabajadores)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">− Materiales comprados por mí</span>
-                    <span className="font-medium text-red-600">− {fmtMoney(totalMaterialesCompradosPorMi)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">− Reintegros a trabajadores</span>
-                    <span className="font-medium text-red-600">− {fmtMoney(totalReintegros)}</span>
-                  </div>
-                  <Separator className="my-1.5" />
-                  <div className="flex justify-between text-base font-bold">
-                    <span>Ganancia Bruta</span>
-                    <span className={gananciaBruta >= 0 ? 'text-emerald-600' : 'text-red-600'}>
-                      {fmtMoney(gananciaBruta)}
-                    </span>
-                  </div>
+              <div className="rounded-lg bg-muted/50 p-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-muted-foreground">Me falta pagar (trabajador)</span>
+                  <span className={`text-sm font-semibold ${saldoPendienteTrabajadores > 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>
+                    {fmtMoney(saldoPendienteTrabajadores)}
+                  </span>
                 </div>
               </div>
             </div>
