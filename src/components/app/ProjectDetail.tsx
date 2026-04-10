@@ -132,12 +132,11 @@ type EditProjectForm = z.infer<typeof editProjectSchema>;
 // ── Component ────────────────────────────────────────────────────────────────
 
 export default function ProjectDetail() {
-  const { selectedProjectId, setCurrentView } = useAppStore();
+  const { selectedProjectId, setCurrentView, projectDetailTab, setProjectDetailTab } = useAppStore();
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
   const [editOpen, setEditOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState('resumen');
 
   // ── Fetch project ────────────────────────────────────────────────────────
 
@@ -637,7 +636,7 @@ export default function ProjectDetail() {
       </div>
 
       {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+      <Tabs value={projectDetailTab} onValueChange={setProjectDetailTab} className="space-y-4">
         <TabsList className="flex-wrap">
           <TabsTrigger value="resumen" className="gap-1.5">
             <ClipboardList className="size-3.5" />
