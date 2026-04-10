@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useAppStore } from '@/lib/store';
 import type { Project } from '@/lib/types';
 import { useForm } from 'react-hook-form';
@@ -224,6 +224,24 @@ export default function ProjectDetail() {
 
   // ── Summary calculations ─────────────────────────────────────────────────
 
+  // ── PRESUPUESTO APROBADO (base de negocio) ──
+  const presupuestoAprobado = project?.budgets
+    ?.filter((b) => b.status === 'APROBADO')
+    .reduce((sum, b) => sum + b.totalAmount, 0) ?? 0;
+
+  // Desglose del presupuesto por categoría
+  const presupuestoDesglose = useMemo(() => {
+    const desglose: Record<string, number> = {};
+    project?.budgets
+      ?.filter((b) => b.status === 'APROBADO')
+      .forEach((b) => {
+        (b.items ?? []).forEach((item) => {
+          desglose[item.category] = (desglose[item.category] ?? 0) + item.totalPrice;
+        });
+      });
+    return desglose;
+  }, [project?.budgets]);
+
   // From invoices (non-ANULADA)
   const totalFacturado =
     project?.invoices
@@ -262,38 +280,24 @@ export default function ProjectDetail() {
   const totalCostoMateriales = totalMaterialesCompradosPorMi + totalReintegros;
 
   // ── MATERIALES TRASLADADOS vs SIN TRASLADAR ──
-  // Materiales que compré y ya están vinculados a una factura = pasamano (neutros)
   const materialesCompradosPorMiTraslados =
     project?.materials?.filter((m) => m.purchasedBy === 'YO' && m.invoiceId).reduce((sum, m) => sum + m.totalCost, 0) ?? 0;
-  // Materiales que compré y NO están vinculados = loss
   const materialesCompradosPorMiSinTrasladar =
     project?.materials?.filter((m) => m.purchasedBy === 'YO' && !m.invoiceId).reduce((sum, m) => sum + m.totalCost, 0) ?? 0;
-  const materialesCompradosPorMiSinTrasladarCount =
-    project?.materials?.filter((m) => m.purchasedBy === 'YO' && !m.invoiceId).length ?? 0;
-  // Reintegros trasladados al cliente
   const reintegrosTraslados =
     project?.materials?.filter((m) => m.purchasedBy === 'TRABAJADOR' && m.reimbursed && m.invoiceId).reduce((sum, m) => sum + m.totalCost, 0) ?? 0;
-  // Reintegros sin trasladar
   const reintegrosSinTrasladar =
     project?.materials?.filter((m) => m.purchasedBy === 'TRABAJADOR' && m.reimbursed && !m.invoiceId).reduce((sum, m) => sum + m.totalCost, 0) ?? 0;
-  // Totales
   const materialesTraslados = materialesCompradosPorMiTraslados + reintegrosTraslados;
   const materialesSinTrasladar = materialesCompradosPorMiSinTrasladar + reintegrosSinTrasladar;
 
   // ── GANANCIA REAL ──
-  // La factura ya incluye el costo de materiales trasladados.
-  // Si el material fue trasladado al cliente (vinculado a factura),
-  // su costo está DENTRO del monto facturado → se cancela.
-  // Solo los materiales SIN trasladar son una pérdida real.
-  //
-  // Ganancia = Facturado − Costo MO − Materiales SIN trasladar
-  //
-  // Explicación: Facturado ya tiene los materiales trasladados adentro,
-  // así que no hace falta restarlos. Solo restamos los que NO pudimos cobrar.
-  const gananciaRealProyectada = totalFacturado - totalMOTrabajador - materialesSinTrasladar;
-  // Si trasladás todos los materiales: ganancia máxima
-  const gananciaMaxima = totalFacturado - totalMOTrabajador;
-  // Dinero que tengo disponible AHORA = Cobrado − Pagado a trabajadores − Materiales pagados de mi bolsillo
+  // Base = Presupuesto Aprobado (lo que acordaste cobrar)
+  // Costos = MO real + Materiales sin trasladar (los trasladados ya están en el presupuesto)
+  const gananciaRealProyectada = presupuestoAprobado - totalMOTrabajador - materialesSinTrasladar;
+  // Facturado vs presupuestado (para ver cuánto falta facturar)
+  const saldoPorFacturar = presupuestoAprobado - totalFacturado;
+  // Dinero que tengo disponible AHORA
   const dineroDisponible = totalCobrado - totalPagadoTrabajadores - totalMaterialesCompradosPorMi - totalReintegros;
 
   // ── Loading skeleton ─────────────────────────────────────────────────────
@@ -340,11 +344,20 @@ export default function ProjectDetail() {
 
   const summaryCards: SummaryCard[] = [
     {
-      label: 'Facturado',
-      value: fmtMoney(totalFacturado),
-      icon: CreditCard,
+      label: 'Presupuesto Aprobado',
+      sublabel: 'Base de ganancia',
+      value: fmtMoney(presupuestoAprobado),
+      icon: FileText,
       color: 'text-violet-600',
       bg: 'bg-violet-50',
+    },
+    {
+      label: 'Facturado',
+      sublabel: presupuestoAprobado > 0 ? `${((totalFacturado / presupuestoAprobado) * 100).toFixed(0)}% del pppto.` : undefined,
+      value: fmtMoney(totalFacturado),
+      icon: CreditCard,
+      color: 'text-sky-600',
+      bg: 'bg-sky-50',
     },
     {
       label: 'Cobrado',
@@ -704,8 +717,8 @@ export default function ProjectDetail() {
               </p>
               <div className="mt-3 space-y-1.5 text-xs text-muted-foreground">
                 <div className="flex justify-between">
-                  <span>Total facturado al cliente</span>
-                  <span className="font-medium text-foreground">{fmtMoney(totalFacturado)}</span>
+                  <span className="flex items-center gap-1"><FileText className="size-3 text-violet-500" /> Presupuesto aprobado (venta)</span>
+                  <span className="font-medium text-foreground">{fmtMoney(presupuestoAprobado)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="flex items-center gap-1"><ArrowDownRight className="size-3 text-red-500" /> − Costo MO (trabajador)</span>
@@ -713,19 +726,19 @@ export default function ProjectDetail() {
                 </div>
                 {materialesSinTrasladar > 0 && (
                   <div className="flex justify-between">
-                    <span className="flex items-center gap-1"><ArrowDownRight className="size-3 text-red-500" /> − Materiales sin trasladar al cliente</span>
+                    <span className="flex items-center gap-1"><ArrowDownRight className="size-3 text-red-500" /> − Materiales sin trasladar</span>
                     <span className="font-medium text-red-600 dark:text-red-400">− {fmtMoney(materialesSinTrasladar)}</span>
                   </div>
                 )}
                 {materialesTraslados > 0 && (
                   <div className="flex justify-between text-emerald-600 dark:text-emerald-400">
-                    <span className="flex items-center gap-1"><CircleCheck className="size-3" /> Materiales trasladados (ya en factura)</span>
+                    <span className="flex items-center gap-1"><CircleCheck className="size-3" /> Materiales trasladados (en factura)</span>
                     <span className="font-medium">{fmtMoney(materialesTraslados)} (neutro)</span>
                   </div>
                 )}
                 <Separator className="my-1" />
                 <div className="flex justify-between text-sm font-semibold">
-                  <span>Ganancia = Facturado − Costo MO − Mat. sin trasladar</span>
+                  <span>Ganancia = Presupuesto − MO − Mat. sin trasladar</span>
                   <span className={gananciaRealProyectada >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400'}>
                     {fmtMoney(gananciaRealProyectada)}
                   </span>
@@ -769,7 +782,16 @@ export default function ProjectDetail() {
                 <div className="mt-2 space-y-3">
                   <div>
                     <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Me falta cobrar del cliente</span>
+                      <span className="text-muted-foreground">Sin facturar (del presupuesto)</span>
+                      <span className={`font-semibold ${saldoPorFacturar > 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>
+                        {fmtMoney(saldoPorFacturar)}
+                      </span>
+                    </div>
+                  </div>
+                  <Separator />
+                  <div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Facturado pero sin cobrar</span>
                       <span className={`font-semibold ${saldoPendienteCliente > 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>
                         {fmtMoney(saldoPendienteCliente)}
                       </span>
@@ -787,7 +809,7 @@ export default function ProjectDetail() {
                   <Separator />
                   <div>
                     <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Reintegros pendientes a trabajadores</span>
+                      <span className="text-muted-foreground">Reintegros pendientes</span>
                       <span className={`font-semibold ${pendienteReintegro > 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>
                         {fmtMoney(pendienteReintegro)}
                       </span>
@@ -836,6 +858,35 @@ export default function ProjectDetail() {
                 </div>
               </div>
             </div>
+
+            {/* ── Desglose del presupuesto aprobado ── */}
+            {presupuestoAprobado > 0 && (
+              <div className="mt-4 rounded-lg bg-muted/50 p-3">
+                <p className="text-xs font-medium text-muted-foreground mb-2">Desglose del presupuesto aprobado</p>
+                <div className="flex flex-wrap gap-2">
+                  {Object.entries(presupuestoDesglose).map(([cat, total]) => {
+                    const catLabels: Record<string, string> = {
+                      MANO_DE_OBRA: 'Mano de Obra',
+                      MATERIAL: 'Material',
+                      MARKUP: 'Markup',
+                      OTRO: 'Otro',
+                    };
+                    const catColors: Record<string, string> = {
+                      MANO_DE_OBRA: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400',
+                      MATERIAL: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400',
+                      MARKUP: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400',
+                      OTRO: 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400',
+                    };
+                    return (
+                      <Badge key={cat} variant="outline" className={`${catColors[cat] ?? ''} gap-1.5 px-2.5 py-1`}>
+                        {catLabels[cat] ?? cat}
+                        <span className="font-semibold">{fmtMoney(total)}</span>
+                      </Badge>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* KPI Cards */}
