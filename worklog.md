@@ -98,3 +98,21 @@ Stage Summary:
 - Solo los materiales SIN trasladar se restan como pérdida
 - Los materiales trasladados se marcan como "neutros" (el usuario pagó y ya lo cobró en la factura)
 - Panel de materiales ahora muestra claramente trasladados vs sin trasladar con alertas visuales
+---
+Task ID: 2
+Agent: Main
+Task: Ajustar lógica de resultado a presupuestado (no facturado) + clarificar rol de facturas
+
+Work Log:
+- Verificado que ProjectDetail.tsx ya usa `presupuestoAprobado` como base de ganancia (no facturado)
+- Fórmula: Ganancia = Presupuesto Aprobado − Costo MO − Materiales sin trasladar
+- "Dinero en tu bolsillo" sigue usando flujo real: Cobrado − Pagado trabajadores − Materiales pagados
+- Aclarado con usuario el rol de facturas: se crean solo cuando se emiten legalmente, no hay presión del sistema
+- Facturas son independientes de la previsibilidad de ganancia (que viene del presupuesto aprobado)
+- Servidor verificado: GET / 200 OK, todas las APIs responden correctamente
+
+Stage Summary:
+- Sistema funciona como se acordó: presupuesto = base de ganancia, facturas = documentos legales
+- No se necesitan facturas ficticias para ver los números completos
+- El "Resultado de la Obra" muestra previsibilidad completa desde el presupuesto aprobado
+- "Dinero en tu bolsillo" refleja el flujo de caja real (cobrado vs pagado)
