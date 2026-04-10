@@ -79,7 +79,7 @@ interface BudgetFormItem {
   quantity: number;
   unit: string;
   unitPrice: number;
-  category: 'MANO_DE_OBRA' | 'MATERIAL' | 'OTRO';
+  category: 'MANO_DE_OBRA' | 'MATERIAL' | 'MARKUP' | 'OTRO';
 }
 
 interface BudgetFormData {
@@ -125,6 +125,11 @@ const CATEGORY_CONFIG: Record<
     label: 'Material',
     className:
       'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400',
+  },
+  MARKUP: {
+    label: 'Markup',
+    className:
+      'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400',
   },
   OTRO: {
     label: 'Otro',
@@ -942,6 +947,7 @@ export default function BudgetsTab({ project, mode = 'full', onRefresh }: Budget
                         <SelectContent>
                           <SelectItem value="MANO_DE_OBRA">Mano de Obra</SelectItem>
                           <SelectItem value="MATERIAL">Material</SelectItem>
+                          <SelectItem value="MARKUP">Markup</SelectItem>
                           <SelectItem value="OTRO">Otro</SelectItem>
                         </SelectContent>
                       </Select>
@@ -1169,6 +1175,7 @@ export default function BudgetsTab({ project, mode = 'full', onRefresh }: Budget
                         <SelectContent>
                           <SelectItem value="MANO_DE_OBRA">Mano de Obra</SelectItem>
                           <SelectItem value="MATERIAL">Material</SelectItem>
+                          <SelectItem value="MARKUP">Markup</SelectItem>
                           <SelectItem value="OTRO">Otro</SelectItem>
                         </SelectContent>
                       </Select>

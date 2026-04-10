@@ -87,7 +87,7 @@ model BudgetItem {
   unit        String @default("un")
   unitPrice   Float  @default(0)
   totalPrice  Float  @default(0)
-  category    String @default("OTRO") // MANO_DE_OBRA | MATERIAL | OTRO
+  category    String @default("OTRO") // MANO_DE_OBRA | MATERIAL | MARKUP | OTRO
 
   budget Budget @relation(fields: [budgetId], references: [id], onDelete: Cascade)
 }

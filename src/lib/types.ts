@@ -55,7 +55,7 @@ export type BudgetItem = {
   unit: string;
   unitPrice: number;
   totalPrice: number;
-  category: 'MANO_DE_OBRA' | 'MATERIAL' | 'OTRO';
+  category: 'MANO_DE_OBRA' | 'MATERIAL' | 'MARKUP' | 'OTRO';
 };
 
 export type Budget = {
