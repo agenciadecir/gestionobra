@@ -137,6 +137,7 @@ export default function ProjectDetail() {
   const [loading, setLoading] = useState(true);
   const [editOpen, setEditOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [activeTab, setActiveTab] = useState('resumen');
 
   // ── Fetch project ────────────────────────────────────────────────────────
 
@@ -636,7 +637,7 @@ export default function ProjectDetail() {
       </div>
 
       {/* Tabs */}
-      <Tabs defaultValue="resumen" className="space-y-4">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList className="flex-wrap">
           <TabsTrigger value="resumen" className="gap-1.5">
             <ClipboardList className="size-3.5" />
