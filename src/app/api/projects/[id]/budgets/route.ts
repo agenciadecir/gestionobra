@@ -66,6 +66,7 @@ export async function POST(
         status: body.status || "PENDIENTE",
         totalAmount,
         notes: body.notes || null,
+        scopeDescription: body.scopeDescription || null,
         items: {
           create: items,
         },

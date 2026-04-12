@@ -66,6 +66,7 @@ export type Budget = {
   status: 'PENDIENTE' | 'APROBADO' | 'RECHAZADO';
   totalAmount: number;
   notes?: string;
+  scopeDescription?: string;
   createdAt: string;
   updatedAt: string;
   items?: BudgetItem[];

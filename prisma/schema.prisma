@@ -72,9 +72,10 @@ model Budget {
   description String?
   status      String   @default("PENDIENTE") // PENDIENTE | APROBADO | RECHAZADO
   totalAmount Float    @default(0)
-  notes       String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  notes            String?
+  scopeDescription  String? // Detalle exhaustivo del alcance: trabajo, tiempos, condiciones, materiales incluidos
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   project Project     @relation(fields: [projectId], references: [id])
   items   BudgetItem[]

@@ -56,6 +56,7 @@ export async function PUT(
           status: body.status || undefined,
           totalAmount,
           notes: body.notes !== undefined ? body.notes : undefined,
+          scopeDescription: body.scopeDescription !== undefined ? body.scopeDescription : undefined,
           items: {
             create: newItems,
           },
@@ -73,6 +74,7 @@ export async function PUT(
         description: body.description !== undefined ? body.description : undefined,
         status: body.status || undefined,
         notes: body.notes !== undefined ? body.notes : undefined,
+        scopeDescription: body.scopeDescription !== undefined ? body.scopeDescription : undefined,
       },
       include: { items: true },
     });

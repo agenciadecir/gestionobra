@@ -11,6 +11,7 @@ import {
   ChevronUp,
   Check,
   X,
+  ClipboardList,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -85,6 +86,7 @@ interface BudgetFormItem {
 interface BudgetFormData {
   description: string;
   notes: string;
+  scopeDescription: string;
   status: 'PENDIENTE' | 'APROBADO' | 'RECHAZADO';
   items: BudgetFormItem[];
 }
@@ -143,6 +145,7 @@ const UNIT_OPTIONS = ['un', 'm2', 'ml', 'kg', 'hs'];
 const EMPTY_FORM: BudgetFormData = {
   description: '',
   notes: '',
+  scopeDescription: '',
   status: 'PENDIENTE',
   items: [],
 };
@@ -179,6 +182,7 @@ function budgetToFormData(budget: Budget): BudgetFormData {
   return {
     description: budget.description ?? '',
     notes: budget.notes ?? '',
+    scopeDescription: budget.scopeDescription ?? '',
     status: budget.status,
     items: (budget.items ?? []).map((item) => ({
       id: item.id,
@@ -300,6 +304,7 @@ export default function BudgetsTab({ project, mode = 'full', onRefresh }: Budget
         body: JSON.stringify({
           description: formData.description,
           notes: formData.notes || undefined,
+          scopeDescription: formData.scopeDescription || undefined,
           status: formData.status,
           items: validItems.map((item) => ({
             description: item.description,
@@ -352,6 +357,7 @@ export default function BudgetsTab({ project, mode = 'full', onRefresh }: Budget
         body: JSON.stringify({
           description: formData.description,
           notes: formData.notes || undefined,
+          scopeDescription: formData.scopeDescription || undefined,
           status: formData.status,
           items: validItems.map((item) => ({
             description: item.description,
@@ -425,6 +431,7 @@ export default function BudgetsTab({ project, mode = 'full', onRefresh }: Budget
         body: JSON.stringify({
           description: budget.description,
           notes: budget.notes,
+          scopeDescription: budget.scopeDescription,
           status: newStatus,
           items: (budget.items ?? []).map((item) => ({
             description: item.description,
@@ -611,6 +618,23 @@ export default function BudgetsTab({ project, mode = 'full', onRefresh }: Budget
               </AccordionTrigger>
               <AccordionContent>
                 <div className="space-y-4">
+                  {/* Scope Description */}
+                  {budget.scopeDescription && (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50/50 dark:border-amber-800/50 dark:bg-amber-950/20">
+                      <div className="flex items-start gap-2.5 px-4 py-3">
+                        <ClipboardList className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                        <div className="min-w-0 flex-1">
+                          <h4 className="text-sm font-semibold text-amber-800 dark:text-amber-300 mb-1.5">
+                            Detalle del Alcance
+                          </h4>
+                          <div className="whitespace-pre-wrap text-sm leading-relaxed text-amber-900/80 dark:text-amber-200/80">
+                            {budget.scopeDescription}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Budget items table */}
                   {!budget.items || budget.items.length === 0 ? (
                     <p className="py-4 text-center text-sm text-muted-foreground">
@@ -773,7 +797,7 @@ export default function BudgetsTab({ project, mode = 'full', onRefresh }: Budget
 
       {/* ── Create Budget Dialog ────────────────────────────────────────────── */}
       <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Nuevo Presupuesto</DialogTitle>
             <DialogDescription>
@@ -813,7 +837,26 @@ export default function BudgetsTab({ project, mode = 'full', onRefresh }: Budget
               </Select>
             </div>
 
-            {/* Notes */}
+            {/* Scope Description */}
+            <div className="space-y-2">
+              <Label htmlFor="create-scope" className="flex items-center gap-1.5">
+                <ClipboardList className="size-4 text-amber-600 dark:text-amber-400" />
+                Detalle del Alcance
+              </Label>
+              <Textarea
+                id="create-scope"
+                placeholder="Describe el alcance del presupuesto: tipo de trabajo, tiempos estimados, condiciones de pago, materiales incluidos, consideraciones especiales..."
+                rows={6}
+                className="resize-y"
+                value={formData.scopeDescription}
+                onChange={(e) => updateFormField('scopeDescription', e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Complementa los items con precio. Documenta el alcance completo, plazos, condiciones de pago, materiales incluidos y otros detalles.
+              </p>
+            </div>
+
+            {/* Notes - Create */}
             <div className="space-y-2">
               <Label htmlFor="create-notes">Notas</Label>
               <Textarea
@@ -828,7 +871,7 @@ export default function BudgetsTab({ project, mode = 'full', onRefresh }: Budget
             {/* Items */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <Label className="text-base font-semibold">Items</Label>
+                <Label className="text-base font-semibold">Items con Precio</Label>
                 <Button
                   type="button"
                   variant="outline"
@@ -1001,7 +1044,7 @@ export default function BudgetsTab({ project, mode = 'full', onRefresh }: Budget
 
       {/* ── Edit Budget Dialog ─────────────────────────────────────────────── */}
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Editar Presupuesto</DialogTitle>
             <DialogDescription>
@@ -1041,7 +1084,26 @@ export default function BudgetsTab({ project, mode = 'full', onRefresh }: Budget
               </Select>
             </div>
 
-            {/* Notes */}
+            {/* Scope Description - Edit */}
+            <div className="space-y-2">
+              <Label htmlFor="edit-scope" className="flex items-center gap-1.5">
+                <ClipboardList className="size-4 text-amber-600 dark:text-amber-400" />
+                Detalle del Alcance
+              </Label>
+              <Textarea
+                id="edit-scope"
+                placeholder="Describe el alcance del presupuesto: tipo de trabajo, tiempos estimados, condiciones de pago, materiales incluidos, consideraciones especiales..."
+                rows={6}
+                className="resize-y"
+                value={formData.scopeDescription}
+                onChange={(e) => updateFormField('scopeDescription', e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Complementa los items con precio. Documenta el alcance completo, plazos, condiciones de pago, materiales incluidos y otros detalles.
+              </p>
+            </div>
+
+            {/* Notes - Edit */}
             <div className="space-y-2">
               <Label htmlFor="edit-notes">Notas</Label>
               <Textarea
@@ -1056,7 +1118,7 @@ export default function BudgetsTab({ project, mode = 'full', onRefresh }: Budget
             {/* Items */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <Label className="text-base font-semibold">Items</Label>
+                <Label className="text-base font-semibold">Items con Precio</Label>
                 <Button
                   type="button"
                   variant="outline"
