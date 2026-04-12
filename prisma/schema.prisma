@@ -193,15 +193,17 @@ model WorkerPayment {
 model Task {
   id            String    @id @default(cuid())
   projectId     String
-  title         String
-  description   String?
-  status        String    @default("PENDIENTE") // PENDIENTE | EN_CURSO | COMPLETADA
-  priority      String    @default("MEDIA") // BAJA | MEDIA | ALTA | URGENTE
-  workerId      String?
-  dueDate       DateTime?
-  completedDate DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  title          String
+  description    String?
+  status         String    @default("PENDIENTE") // PENDIENTE | EN_CURSO | COMPLETADA
+  priority       String    @default("MEDIA") // BAJA | MEDIA | ALTA | URGENTE
+  workerId       String?
+  assigneeType   String?   // TRABAJADOR | CLIENTE | PROPIETARIO | INQUILINO | PROVEEDOR
+  assigneeName   String?   // Nombre del asignado (para tipos no-trabajador o como backup)
+  dueDate        DateTime?
+  completedDate  DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   project Project @relation(fields: [projectId], references: [id])
   worker  Worker? @relation(fields: [workerId], references: [id])

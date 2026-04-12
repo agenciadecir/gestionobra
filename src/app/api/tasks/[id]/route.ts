@@ -35,7 +35,11 @@ export async function PUT(
           body.workerId !== undefined
             ? body.workerId || null
             : undefined,
-        dueDate: body.dueDate ? new Date(body.dueDate) : undefined,
+        assigneeType:
+          body.assigneeType !== undefined ? body.assigneeType : undefined,
+        assigneeName:
+          body.assigneeName !== undefined ? body.assigneeName : undefined,
+        dueDate: body.dueDate ? new Date(body.dueDate) : (body.dueDate === null ? null : undefined),
         completedDate: isCompleting
           ? new Date()
           : isReopening

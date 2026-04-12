@@ -154,6 +154,8 @@ export type Task = {
   status: 'PENDIENTE' | 'EN_CURSO' | 'COMPLETADA';
   priority: 'BAJA' | 'MEDIA' | 'ALTA' | 'URGENTE';
   workerId?: string;
+  assigneeType?: 'TRABAJADOR' | 'CLIENTE' | 'PROPIETARIO' | 'INQUILINO' | 'PROVEEDOR';
+  assigneeName?: string;
   dueDate?: string;
   completedDate?: string;
   createdAt: string;

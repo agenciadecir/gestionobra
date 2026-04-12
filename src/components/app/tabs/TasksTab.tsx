@@ -1,8 +1,21 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import { toast } from 'sonner';
 import type { Project, Task, Worker } from '@/lib/types';
+import {
+  DndContext,
+  DragOverlay,
+  closestCorners,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragStartEvent,
+  type DragEndEvent,
+  type DragOverEvent,
+} from '@dnd-kit/core';
+import { useDroppable } from '@dnd-kit/core';
+import { useDraggable } from '@dnd-kit/core';
 import {
   Plus,
   Trash2,
@@ -10,15 +23,19 @@ import {
   Clock,
   AlertTriangle,
   Edit,
-  Play,
-  ChevronRight,
+  GripVertical,
+  User,
+  Building2,
+  Home,
+  Key,
+  Truck,
   ListChecks,
+  X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
 import { Card, CardContent } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import {
@@ -47,9 +64,11 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
 type TaskStatus = Task['status'];
 type TaskPriority = Task['priority'];
-type FilterStatus = 'ALL' | TaskStatus;
+type AssigneeType = 'TRABAJADOR' | 'CLIENTE' | 'PROPIETARIO' | 'INQUILINO' | 'PROVEEDOR';
 
 interface TasksTabProps {
   project: Project;
@@ -61,22 +80,43 @@ interface TaskFormData {
   description: string;
   priority: TaskPriority;
   status: TaskStatus;
+  assigneeType: string;
   workerId: string;
+  assigneeName: string;
   dueDate: string;
-  notes: string;
 }
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const COLUMNS: { id: TaskStatus; label: string; color: string; bgColor: string; icon: typeof Clock }[] = [
+  {
+    id: 'PENDIENTE',
+    label: 'Pendiente',
+    color: 'border-t-gray-400',
+    bgColor: 'bg-gray-50/80 dark:bg-gray-950/30',
+    icon: Clock,
+  },
+  {
+    id: 'EN_CURSO',
+    label: 'En Curso',
+    color: 'border-t-blue-500',
+    bgColor: 'bg-blue-50/60 dark:bg-blue-950/20',
+    icon: () => <span className="inline-block size-2 rounded-full bg-blue-500 animate-pulse" />,
+  },
+  {
+    id: 'COMPLETADA',
+    label: 'Completada',
+    color: 'border-t-green-500',
+    bgColor: 'bg-green-50/60 dark:bg-green-950/20',
+    icon: CheckCircle,
+  },
+];
 
 const PRIORITY_ORDER: Record<TaskPriority, number> = {
   URGENTE: 0,
   ALTA: 1,
   MEDIA: 2,
   BAJA: 3,
-};
-
-const NEXT_STATUS: Record<TaskStatus, TaskStatus | null> = {
-  PENDIENTE: 'EN_CURSO',
-  EN_CURSO: 'COMPLETADA',
-  COMPLETADA: null,
 };
 
 const priorityColors: Record<TaskPriority, string> = {
@@ -86,18 +126,6 @@ const priorityColors: Record<TaskPriority, string> = {
   URGENTE: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300',
 };
 
-const statusColors: Record<TaskStatus, string> = {
-  PENDIENTE: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
-  EN_CURSO: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300',
-  COMPLETADA: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300',
-};
-
-const statusLabels: Record<TaskStatus, string> = {
-  PENDIENTE: 'Pendiente',
-  EN_CURSO: 'En Curso',
-  COMPLETADA: 'Completada',
-};
-
 const priorityLabels: Record<TaskPriority, string> = {
   BAJA: 'Baja',
   MEDIA: 'Media',
@@ -105,22 +133,40 @@ const priorityLabels: Record<TaskPriority, string> = {
   URGENTE: 'Urgente',
 };
 
+const ASSIGNEE_TYPES: { value: AssigneeType; label: string; icon: typeof User }[] = [
+  { value: 'TRABAJADOR', label: 'Trabajador', icon: User },
+  { value: 'CLIENTE', label: 'Cliente', icon: Building2 },
+  { value: 'PROPIETARIO', label: 'Propietario', icon: Home },
+  { value: 'INQUILINO', label: 'Inquilino', icon: Key },
+  { value: 'PROVEEDOR', label: 'Proveedor', icon: Truck },
+];
+
+const assigneeBadgeClass: Record<AssigneeType, string> = {
+  TRABAJADOR: 'bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-400',
+  CLIENTE: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400',
+  PROPIETARIO: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400',
+  INQUILINO: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-400',
+  PROVEEDOR: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400',
+};
+
 const emptyFormData: TaskFormData = {
   title: '',
   description: '',
   priority: 'MEDIA',
   status: 'PENDIENTE',
+  assigneeType: '',
   workerId: '',
+  assigneeName: '',
   dueDate: '',
-  notes: '',
 };
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatDate(dateStr: string): string {
   const date = new Date(dateStr + 'T00:00:00');
   return date.toLocaleDateString('es-AR', {
     day: '2-digit',
     month: 'short',
-    year: 'numeric',
   });
 }
 
@@ -132,11 +178,212 @@ function isOverdue(dateStr: string, status: TaskStatus): boolean {
   return due < today;
 }
 
+function getAssigneeLabel(task: Task): { text: string; type?: AssigneeType } {
+  if (task.assigneeType === 'TRABAJADOR' && task.worker) {
+    return { text: task.worker.name, type: 'TRABAJADOR' };
+  }
+  if (task.assigneeType && task.assigneeName) {
+    return { text: task.assigneeName, type: task.assigneeType };
+  }
+  if (task.assigneeType) {
+    return { text: task.assigneeType.charAt(0) + task.assigneeType.slice(1).toLowerCase(), type: task.assigneeType };
+  }
+  if (task.worker) {
+    return { text: task.worker.name, type: 'TRABAJADOR' };
+  }
+  return { text: '' };
+}
+
+// ─── Droppable Column ────────────────────────────────────────────────────────
+
+function DroppableColumn({
+  column,
+  tasks,
+  onAddTask,
+  onEditTask,
+  onDeleteTask,
+}: {
+  column: typeof COLUMNS[number];
+  tasks: Task[];
+  onAddTask: (status: TaskStatus) => void;
+  onEditTask: (task: Task) => void;
+  onDeleteTask: (task: Task) => void;
+}) {
+  const { setNodeRef, isOver } = useDroppable({
+    id: column.id,
+    data: { type: 'column', status: column.id },
+  });
+
+  const ColIcon = column.icon;
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={`flex flex-col rounded-xl border ${column.color} border-t-4 ${
+        isOver ? 'ring-2 ring-primary/30 bg-primary/5' : column.bgColor
+      } transition-all duration-200`}
+    >
+      {/* Column header */}
+      <div className="flex items-center justify-between px-3 pt-3 pb-2">
+        <div className="flex items-center gap-2">
+          <ColIcon className="size-4 text-muted-foreground" />
+          <h3 className="text-sm font-semibold">{column.label}</h3>
+          <span className="flex size-5 items-center justify-center rounded-full bg-muted text-xs font-medium">
+            {tasks.length}
+          </span>
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-7"
+          onClick={() => onAddTask(column.id)}
+        >
+          <Plus className="size-3.5" />
+        </Button>
+      </div>
+
+      {/* Cards */}
+      <div className="flex-1 space-y-2 px-2 pb-2 min-h-[80px] max-h-[calc(100vh-280px)] overflow-y-auto">
+        {tasks.length === 0 && (
+          <div className="flex items-center justify-center py-6 text-xs text-muted-foreground/60">
+            {isOver ? 'Soltá acá' : 'Sin tareas'}
+          </div>
+        )}
+        {tasks.map((task) => (
+          <TaskCard
+            key={task.id}
+            task={task}
+            onEdit={() => onEditTask(task)}
+            onDelete={() => onDeleteTask(task)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Draggable Task Card ─────────────────────────────────────────────────────
+
+function TaskCard({
+  task,
+  onEdit,
+  onDelete,
+  isDragging = false,
+}: {
+  task: Task;
+  onEdit: () => void;
+  onDelete: () => void;
+  isDragging?: boolean;
+}) {
+  const { attributes, listeners, setNodeRef, transform, isDragging: isCurrentlyDragging } = useDraggable({
+    id: task.id,
+    data: { type: 'task', task },
+  });
+
+  const style = transform
+    ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` }
+    : undefined;
+
+  const overdue = task.dueDate && isOverdue(task.dueDate, task.status);
+  const assignee = getAssigneeLabel(task);
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`group rounded-lg border bg-card p-3 space-y-2 shadow-sm transition-shadow hover:shadow-md ${
+        isCurrentlyDragging || isDragging
+          ? 'opacity-60 shadow-lg ring-2 ring-primary/40 rotate-1 scale-105'
+          : ''
+      } ${task.status === 'COMPLETADA' ? 'opacity-75' : ''}`}
+    >
+      {/* Top row: priority badge + actions */}
+      <div className="flex items-start justify-between gap-1">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <Badge
+            variant="secondary"
+            className={`text-[10px] px-1.5 py-0 ${priorityColors[task.priority]}`}
+          >
+            {task.priority === 'URGENTE' && <AlertTriangle className="size-2.5 mr-0.5" />}
+            {priorityLabels[task.priority]}
+          </Badge>
+          {overdue && (
+            <Badge variant="secondary" className="text-[10px] px-1.5 py-0 bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400">
+              Vencida
+            </Badge>
+          )}
+        </div>
+
+        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+          <Button variant="ghost" size="icon" className="size-6" onClick={onEdit}>
+            <Edit className="size-3" />
+          </Button>
+          <Button variant="ghost" size="icon" className="size-6 text-destructive hover:text-destructive" onClick={onDelete}>
+            <Trash2 className="size-3" />
+          </Button>
+        </div>
+      </div>
+
+      {/* Drag handle + title */}
+      <div className="flex items-start gap-1.5">
+        <button
+          className="mt-0.5 cursor-grab active:cursor-grabbing text-muted-foreground/40 hover:text-muted-foreground/70 shrink-0 touch-none"
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical className="size-4" />
+        </button>
+        <div className="min-w-0 flex-1">
+          <h4
+            className={`text-sm font-medium leading-snug ${
+              task.status === 'COMPLETADA' ? 'line-through text-muted-foreground' : ''
+            }`}
+          >
+            {task.title}
+          </h4>
+          {task.description && (
+            <p className="mt-0.5 text-xs text-muted-foreground line-clamp-2 leading-relaxed">
+              {task.description}
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* Bottom row: assignee + due date */}
+      <div className="flex items-center justify-between gap-2 pt-0.5">
+        {assignee.text ? (
+          <Badge
+            variant="secondary"
+            className={`text-[10px] px-1.5 py-0 gap-1 ${
+              assigneeBadgeClass[assignee.type as AssigneeType] ?? 'bg-muted text-muted-foreground'
+            }`}
+          >
+            {assignee.text}
+          </Badge>
+        ) : (
+          <span />
+        )}
+        {task.dueDate && (
+          <span
+            className={`flex items-center gap-1 text-[11px] ${
+              overdue ? 'text-red-600 dark:text-red-400 font-medium' : 'text-muted-foreground'
+            }`}
+          >
+            <Clock className="size-3" />
+            {formatDate(task.dueDate)}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Component ──────────────────────────────────────────────────────────
+
 export default function TasksTab({ project, onRefresh }: TasksTabProps) {
   const tasks = project.tasks ?? [];
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [loadingWorkers, setLoadingWorkers] = useState(true);
-  const [filter, setFilter] = useState<FilterStatus>('ALL');
 
   // Dialog states
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -148,6 +395,16 @@ export default function TasksTab({ project, onRefresh }: TasksTabProps) {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deletingTask, setDeletingTask] = useState<Task | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  // DnD state
+  const [activeTask, setActiveTask] = useState<Task | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 5 },
+    })
+  );
 
   // Fetch workers on mount
   useEffect(() => {
@@ -168,37 +425,109 @@ export default function TasksTab({ project, onRefresh }: TasksTabProps) {
     fetchWorkers();
   }, []);
 
-  // Summary counts
+  // Organize tasks into columns
+  const columns = useMemo(() => {
+    const result: Record<TaskStatus, Task[]> = {
+      PENDIENTE: [],
+      EN_CURSO: [],
+      COMPLETADA: [],
+    };
+    for (const task of tasks) {
+      if (result[task.status]) {
+        result[task.status].push(task);
+      }
+    }
+    // Sort each column by priority then due date
+    for (const status of Object.keys(result) as TaskStatus[]) {
+      result[status].sort((a, b) => {
+        const pA = PRIORITY_ORDER[a.priority];
+        const pB = PRIORITY_ORDER[b.priority];
+        if (pA !== pB) return pA - pB;
+        if (a.dueDate && b.dueDate) return a.dueDate.localeCompare(b.dueDate);
+        if (a.dueDate) return -1;
+        if (b.dueDate) return 1;
+        return a.createdAt.localeCompare(b.createdAt);
+      });
+    }
+    return result;
+  }, [tasks]);
+
   const totalCount = tasks.length;
-  const pendientesCount = tasks.filter((t) => t.status === 'PENDIENTE').length;
-  const enCursoCount = tasks.filter((t) => t.status === 'EN_CURSO').length;
-  const completadasCount = tasks.filter((t) => t.status === 'COMPLETADA').length;
+  const completadasCount = columns.COMPLETADA.length;
   const completionPercent = totalCount > 0 ? Math.round((completadasCount / totalCount) * 100) : 0;
 
-  // Filtered & sorted tasks
-  const filteredTasks = useMemo(() => {
-    let filtered = filter === 'ALL' ? tasks : tasks.filter((t) => t.status === filter);
+  // ── DnD handlers ───────────────────────────────────────────────────────────
 
-    return [...filtered].sort((a, b) => {
-      const pA = PRIORITY_ORDER[a.priority];
-      const pB = PRIORITY_ORDER[b.priority];
-      if (pA !== pB) return pA - pB;
-      // Same priority: sort by dueDate (soonest first), then by createdAt
-      if (a.dueDate && b.dueDate) return a.dueDate.localeCompare(b.dueDate);
-      if (a.dueDate) return -1;
-      if (b.dueDate) return 1;
-      return a.createdAt.localeCompare(b.createdAt);
-    });
-  }, [tasks, filter]);
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    const { active } = event;
+    const task = tasks.find((t) => t.id === active.id);
+    if (task) setActiveTask(task);
+    setIsDragging(true);
+  }, [tasks]);
 
-  // Open create dialog
-  const openCreateDialog = () => {
+  const handleDragEnd = useCallback(
+    async (event: DragEndEvent) => {
+      setIsDragging(false);
+      setActiveTask(null);
+      const { active, over } = event;
+
+      if (!over) return;
+
+      // Determine target column status
+      let targetStatus: TaskStatus | null = null;
+
+      // Check if dropped on a column
+      if (COLUMNS.some((c) => c.id === over.id)) {
+        targetStatus = over.id as TaskStatus;
+      }
+      // Check if dropped on a task card that is inside a column
+      else {
+        const targetTask = tasks.find((t) => t.id === over.id);
+        if (targetTask) {
+          targetStatus = targetTask.status;
+        }
+      }
+
+      if (!targetStatus) return;
+
+      const draggedTask = tasks.find((t) => t.id === active.id);
+      if (!draggedTask || draggedTask.status === targetStatus) return;
+
+      // Update task status
+      try {
+        const res = await fetch(`/api/tasks/${draggedTask.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: targetStatus }),
+        });
+
+        if (res.ok) {
+          toast.success(
+            `«${draggedTask.title}» → ${COLUMNS.find((c) => c.id === targetStatus)?.label}`
+          );
+          onRefresh();
+        } else {
+          toast.error('Error al mover la tarea');
+        }
+      } catch {
+        toast.error('Error de conexión');
+      }
+    },
+    [tasks, onRefresh]
+  );
+
+  const handleDragOver = useCallback((_event: DragOverEvent) => {
+    // We handle everything in DragEnd
+  }, []);
+
+  // ── Dialog handlers ────────────────────────────────────────────────────────
+
+  const openCreateDialog = (status: TaskStatus = 'PENDIENTE') => {
     setEditingTask(null);
-    setFormData(emptyFormData);
+    setFormData({ ...emptyFormData, status });
     setDialogOpen(true);
   };
 
-  // Open edit dialog
   const openEditDialog = (task: Task) => {
     setEditingTask(task);
     setFormData({
@@ -206,14 +535,16 @@ export default function TasksTab({ project, onRefresh }: TasksTabProps) {
       description: task.description ?? '',
       priority: task.priority,
       status: task.status,
+      assigneeType: task.assigneeType ?? (task.workerId ? 'TRABAJADOR' : ''),
       workerId: task.workerId ?? '',
+      assigneeName: task.assigneeName ?? '',
       dueDate: task.dueDate ?? '',
-      notes: '',
     });
     setDialogOpen(true);
   };
 
-  // Submit create/edit
+  // ── Submit ─────────────────────────────────────────────────────────────────
+
   const handleSubmit = async () => {
     if (!formData.title.trim()) {
       toast.error('El título es obligatorio');
@@ -229,9 +560,20 @@ export default function TasksTab({ project, onRefresh }: TasksTabProps) {
       };
 
       if (formData.description.trim()) body.description = formData.description.trim();
-      if (formData.workerId && formData.workerId !== '__none') body.workerId = formData.workerId;
       if (formData.dueDate) body.dueDate = formData.dueDate;
-      if (formData.notes.trim()) body.notes = formData.notes.trim();
+
+      if (formData.assigneeType) {
+        body.assigneeType = formData.assigneeType;
+        if (formData.assigneeType === 'TRABAJADOR') {
+          if (formData.workerId && formData.workerId !== '__none') {
+            body.workerId = formData.workerId;
+          }
+        } else {
+          if (formData.assigneeName.trim()) {
+            body.assigneeName = formData.assigneeName.trim();
+          }
+        }
+      }
 
       let res: Response;
       if (editingTask) {
@@ -263,32 +605,8 @@ export default function TasksTab({ project, onRefresh }: TasksTabProps) {
     }
   };
 
-  // Quick status change
-  const handleStatusChange = async (task: Task) => {
-    const nextStatus = NEXT_STATUS[task.status];
-    if (!nextStatus) return;
+  // ── Delete ─────────────────────────────────────────────────────────────────
 
-    try {
-      const res = await fetch(`/api/tasks/${task.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: nextStatus }),
-      });
-
-      if (res.ok) {
-        const label = statusLabels[nextStatus];
-        toast.success(`Tarea marcada como "${label}"`);
-        onRefresh();
-      } else {
-        const err = await res.json();
-        toast.error(err.error ?? 'Error al cambiar el estado');
-      }
-    } catch {
-      toast.error('Error de conexión');
-    }
-  };
-
-  // Delete task
   const handleDelete = async () => {
     if (!deletingTask) return;
     setDeleting(true);
@@ -310,221 +628,91 @@ export default function TasksTab({ project, onRefresh }: TasksTabProps) {
     }
   };
 
-  // Status change icon
-  const getStatusIcon = (status: TaskStatus) => {
-    switch (status) {
-      case 'PENDIENTE':
-        return <Clock className="size-4" />;
-      case 'EN_CURSO':
-        return <Play className="size-4" />;
-      case 'COMPLETADA':
-        return <CheckCircle className="size-4" />;
-    }
-  };
-
-  const filterButtons: { label: string; value: FilterStatus; count: number }[] = [
-    { label: 'Todas', value: 'ALL', count: totalCount },
-    { label: 'Pendientes', value: 'PENDIENTE', count: pendientesCount },
-    { label: 'En Curso', value: 'EN_CURSO', count: enCursoCount },
-    { label: 'Completadas', value: 'COMPLETADA', count: completadasCount },
-  ];
+  // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="space-y-6">
-      {/* Summary bar */}
-      <div className="rounded-lg border bg-card p-4 space-y-3">
-        <div className="flex flex-wrap items-center gap-4 text-sm">
-          <div className="flex items-center gap-1.5">
-            <ListChecks className="size-4 text-muted-foreground" />
-            <span className="font-medium">Total:</span>
-            <span>{totalCount}</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <Clock className="size-4 text-gray-500" />
-            <span className="text-muted-foreground">Pendientes:</span>
-            <span className="font-medium">{pendientesCount}</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <Play className="size-4 text-blue-500" />
-            <span className="text-muted-foreground">En Curso:</span>
-            <span className="font-medium">{enCursoCount}</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <CheckCircle className="size-4 text-green-500" />
-            <span className="text-muted-foreground">Completadas:</span>
-            <span className="font-medium">{completadasCount}</span>
+    <div className="space-y-4">
+      {/* Header bar */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-4">
+          <div>
+            <h2 className="text-xl font-semibold tracking-tight flex items-center gap-2">
+              <ListChecks className="size-5" />
+              Tareas
+            </h2>
+            <p className="text-muted-foreground text-sm">
+              {totalCount} tarea{totalCount !== 1 ? 's' : ''} · {completionPercent}% completado
+            </p>
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          <Progress value={completionPercent} className="flex-1" />
-          <span className="text-sm font-medium text-muted-foreground whitespace-nowrap">
-            {completionPercent}%
-          </span>
-        </div>
-      </div>
-
-      {/* Actions bar: Nueva Tarea + Filter buttons */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-wrap gap-2">
-          {filterButtons.map((btn) => (
-            <Button
-              key={btn.value}
-              variant={filter === btn.value ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setFilter(btn.value)}
-              className="gap-1.5"
-            >
-              {btn.label}
-              <span className="text-xs opacity-70">({btn.count})</span>
-            </Button>
-          ))}
-        </div>
-        <Button onClick={openCreateDialog} className="gap-2">
+        <Button onClick={() => openCreateDialog()} className="gap-2">
           <Plus className="size-4" />
           Nueva Tarea
         </Button>
       </div>
 
-      {/* Task list */}
-      {filteredTasks.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-            <ListChecks className="mb-3 size-10 text-muted-foreground/50" />
-            <p className="text-sm text-muted-foreground">
-              {totalCount === 0
-                ? 'No hay tareas registradas para este proyecto.'
-                : 'No hay tareas con el filtro seleccionado.'}
-            </p>
-            {totalCount === 0 && (
-              <Button
-                variant="link"
-                size="sm"
-                onClick={openCreateDialog}
-                className="mt-1"
-              >
-                Crear primera tarea
-              </Button>
-            )}
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid gap-3">
-          {filteredTasks.map((task) => {
-            const nextStatus = NEXT_STATUS[task.status];
-            const overdue = task.dueDate && isOverdue(task.dueDate, task.status);
-            const worker = task.worker;
-
-            return (
-              <Card key={task.id} className="py-0 overflow-hidden">
-                <CardContent className="p-4 space-y-3">
-                  {/* Top row: badges + actions */}
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge
-                        variant="secondary"
-                        className={priorityColors[task.priority]}
-                      >
-                        {task.priority === 'URGENTE' && (
-                          <AlertTriangle className="size-3 mr-0.5" />
-                        )}
-                        {priorityLabels[task.priority]}
-                      </Badge>
-                      <Badge
-                        variant="secondary"
-                        className={statusColors[task.status]}
-                      >
-                        {getStatusIcon(task.status)}
-                        <span className="ml-1">{statusLabels[task.status]}</span>
-                      </Badge>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      {nextStatus && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 gap-1 text-xs"
-                          onClick={() => handleStatusChange(task)}
-                          title={`Marcar como ${statusLabels[nextStatus]}`}
-                        >
-                          {getStatusIcon(nextStatus)}
-                          {statusLabels[nextStatus]}
-                          <ChevronRight className="size-3" />
-                        </Button>
-                      )}
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-7"
-                        onClick={() => openEditDialog(task)}
-                      >
-                        <Edit className="size-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-7 text-destructive hover:text-destructive"
-                        onClick={() => {
-                          setDeletingTask(task);
-                          setDeleteDialogOpen(true);
-                        }}
-                      >
-                        <Trash2 className="size-3.5" />
-                      </Button>
-                    </div>
-                  </div>
-
-                  {/* Title & description */}
-                  <div>
-                    <h3
-                      className={`font-semibold leading-snug ${
-                        task.status === 'COMPLETADA'
-                          ? 'line-through text-muted-foreground'
-                          : ''
-                      }`}
-                    >
-                      {task.title}
-                    </h3>
-                    {task.description && (
-                      <p className="mt-1 text-sm text-muted-foreground line-clamp-2">
-                        {task.description}
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Bottom row: worker + due date */}
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                    {worker && (
-                      <span className="flex items-center gap-1">
-                        <span className="font-medium text-foreground">
-                          {worker.name}
-                        </span>
-                        {worker.specialty && (
-                          <span>&middot; {worker.specialty}</span>
-                        )}
-                      </span>
-                    )}
-                    {task.dueDate && (
-                      <span
-                        className={`flex items-center gap-1 ${
-                          overdue ? 'text-red-600 dark:text-red-400 font-medium' : ''
-                        }`}
-                      >
-                        <Clock className="size-3" />
-                        {overdue && 'Vencida: '}
-                        {formatDate(task.dueDate)}
-                      </span>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
+      {/* Progress bar */}
+      {totalCount > 0 && (
+        <div className="flex items-center gap-3">
+          <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
+            <div
+              className="h-full rounded-full bg-green-500 transition-all duration-500"
+              style={{ width: `${completionPercent}%` }}
+            />
+          </div>
+          <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">
+            {completadasCount}/{totalCount}
+          </span>
         </div>
       )}
 
-      {/* Create/Edit Dialog */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+      {/* Kanban Board */}
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCorners}
+        onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
+        onDragEnd={handleDragEnd}
+      >
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {COLUMNS.map((col) => (
+            <DroppableColumn
+              key={col.id}
+              column={col}
+              tasks={columns[col.id]}
+              onAddTask={openCreateDialog}
+              onEditTask={openEditDialog}
+              onDeleteTask={(task) => {
+                setDeletingTask(task);
+                setDeleteDialogOpen(true);
+              }}
+            />
+          ))}
+        </div>
+
+        {/* Drag overlay */}
+        <DragOverlay>
+          {activeTask && isDragging ? (
+            <div className="w-[300px]">
+              <TaskCard task={activeTask} onEdit={() => {}} onDelete={() => {}} isDragging />
+            </div>
+          ) : null}
+        </DragOverlay>
+      </DndContext>
+
+      {/* ── Create/Edit Dialog ──────────────────────────────────────────────── */}
+      <Dialog
+        open={dialogOpen}
+        onOpenChange={(open) => {
+          if (!open) return;
+          setDialogOpen(false);
+        }}
+      >
+        <DialogContent
+          className="max-w-md max-h-[90vh] overflow-y-auto"
+          onInteractOutside={(e) => e.preventDefault()}
+          onEscapeKeyDown={(e) => e.preventDefault()}
+        >
           <DialogHeader>
             <DialogTitle>
               {editingTask ? 'Editar Tarea' : 'Nueva Tarea'}
@@ -566,7 +754,7 @@ export default function TasksTab({ project, onRefresh }: TasksTabProps) {
               />
             </div>
 
-            {/* Priority + Status row */}
+            {/* Priority + Status */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Prioridad</Label>
@@ -607,41 +795,80 @@ export default function TasksTab({ project, onRefresh }: TasksTabProps) {
               </div>
             </div>
 
-            {/* Worker */}
+            {/* Assignee Type */}
             <div className="space-y-2">
-              <Label>Trabajador asignado</Label>
+              <Label>Asignado a</Label>
               <Select
-                value={formData.workerId || '__none'}
+                value={formData.assigneeType || '__none'}
                 onValueChange={(val) =>
-                  setFormData((prev) => ({ ...prev, workerId: val }))
+                  setFormData((prev) => ({
+                    ...prev,
+                    assigneeType: val === '__none' ? '' : val,
+                    workerId: '',
+                    assigneeName: '',
+                  }))
                 }
               >
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder="Sin asignar" />
                 </SelectTrigger>
                 <SelectContent>
-                  {loadingWorkers ? (
-                    <SelectItem value="__loading" disabled>
-                      Cargando...
+                  <SelectItem value="__none">Sin asignar</SelectItem>
+                  {ASSIGNEE_TYPES.map((at) => (
+                    <SelectItem key={at.value} value={at.value}>
+                      {at.label}
                     </SelectItem>
-                  ) : workers.length === 0 ? (
-                    <SelectItem value="__empty" disabled>
-                      No hay trabajadores
-                    </SelectItem>
-                  ) : (
-                    <>
-                      <SelectItem value="__none">Sin asignar</SelectItem>
-                      {workers.map((w) => (
-                        <SelectItem key={w.id} value={w.id}>
-                          {w.name}
-                          {w.specialty ? ` - ${w.specialty}` : ''}
-                        </SelectItem>
-                      ))}
-                    </>
-                  )}
+                  ))}
                 </SelectContent>
               </Select>
             </div>
+
+            {/* Conditional: Worker select (for TRABAJADOR) or Name input (for others) */}
+            {formData.assigneeType === 'TRABAJADOR' && (
+              <div className="space-y-2">
+                <Label>Trabajador</Label>
+                <Select
+                  value={formData.workerId || '__none'}
+                  onValueChange={(val) =>
+                    setFormData((prev) => ({ ...prev, workerId: val }))
+                  }
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Seleccionar trabajador" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {loadingWorkers ? (
+                      <SelectItem value="__loading" disabled>Cargando...</SelectItem>
+                    ) : workers.length === 0 ? (
+                      <SelectItem value="__empty" disabled>No hay trabajadores</SelectItem>
+                    ) : (
+                      <>
+                        <SelectItem value="__none">Sin asignar</SelectItem>
+                        {workers.map((w) => (
+                          <SelectItem key={w.id} value={w.id}>
+                            {w.name}
+                            {w.specialty ? ` · ${w.specialty}` : ''}
+                          </SelectItem>
+                        ))}
+                      </>
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {formData.assigneeType && formData.assigneeType !== 'TRABAJADOR' && (
+              <div className="space-y-2">
+                <Label>Nombre</Label>
+                <Input
+                  placeholder={`Nombre del ${ASSIGNEE_TYPES.find((a) => a.value === formData.assigneeType)?.label?.toLowerCase() ?? 'asignado'}`}
+                  value={formData.assigneeName}
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, assigneeName: e.target.value }))
+                  }
+                />
+              </div>
+            )}
 
             {/* Due date */}
             <div className="space-y-2">
@@ -652,20 +879,6 @@ export default function TasksTab({ project, onRefresh }: TasksTabProps) {
                 value={formData.dueDate}
                 onChange={(e) =>
                   setFormData((prev) => ({ ...prev, dueDate: e.target.value }))
-                }
-              />
-            </div>
-
-            {/* Notes */}
-            <div className="space-y-2">
-              <Label htmlFor="task-notes">Notas</Label>
-              <Textarea
-                id="task-notes"
-                placeholder="Notas adicionales..."
-                rows={2}
-                value={formData.notes}
-                onChange={(e) =>
-                  setFormData((prev) => ({ ...prev, notes: e.target.value }))
                 }
               />
             </div>
@@ -690,7 +903,7 @@ export default function TasksTab({ project, onRefresh }: TasksTabProps) {
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirmation Dialog */}
+      {/* ── Delete Confirmation Dialog ──────────────────────────────────────── */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>

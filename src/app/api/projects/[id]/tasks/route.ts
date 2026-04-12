@@ -50,7 +50,9 @@ export async function POST(
         description: body.description || null,
         status: body.status || "PENDIENTE",
         priority: body.priority || "MEDIA",
-        workerId: body.workerId || null,
+        workerId: body.assigneeType === "TRABAJADOR" ? (body.workerId || null) : null,
+        assigneeType: body.assigneeType || null,
+        assigneeName: body.assigneeName || null,
         dueDate: body.dueDate ? new Date(body.dueDate) : null,
         completedDate:
           body.status === "COMPLETADA" ? new Date() : null,
