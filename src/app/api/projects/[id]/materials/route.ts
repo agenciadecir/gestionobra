@@ -31,6 +31,60 @@ export async function POST(
     const { id } = await params;
     const body = await request.json();
 
+    // Batch mode: body.materials is an array
+    if (body.materials && Array.isArray(body.materials)) {
+      if (body.materials.length === 0) {
+        return NextResponse.json(
+          { error: "No se enviaron materiales" },
+          { status: 400 }
+        );
+      }
+
+      const validMaterials = body.materials.filter(
+        (m: { description?: string }) => m.description && m.description.trim() !== ""
+      );
+
+      if (validMaterials.length === 0) {
+        return NextResponse.json(
+          { error: "Todos los materiales están vacíos" },
+          { status: 400 }
+        );
+      }
+
+      const results = await db.material.createMany({
+        data: validMaterials.map(
+          (m: {
+            description: string;
+            quantity?: number;
+            unit?: string;
+            unitCost?: number;
+            purchasedBy?: string;
+            reimbursed?: boolean;
+            invoiceNumber?: string;
+            notes?: string;
+          }) => ({
+            projectId: id,
+            description: m.description.trim(),
+            quantity: m.quantity || 1,
+            unit: m.unit || "un",
+            unitCost: m.unitCost || 0,
+            totalCost: (m.quantity || 1) * (m.unitCost || 0),
+            purchasedBy: m.purchasedBy || "YO",
+            reimbursed: m.reimbursed || false,
+            invoiceId: null,
+            invoiceNumber: m.invoiceNumber || null,
+            notes: m.notes || null,
+          })
+        ),
+      });
+
+      return NextResponse.json(
+        { count: results.count, message: `${results.count} materiales creados` },
+        { status: 201 }
+      );
+    }
+
+    // Single mode (backward compatible)
     if (!body.description) {
       return NextResponse.json(
         { error: "La descripción es obligatoria" },

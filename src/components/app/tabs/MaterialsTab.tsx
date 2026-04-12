@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -71,10 +71,23 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
 interface MaterialsTabProps {
   project: Project;
   onRefresh: () => void;
 }
+
+interface MaterialRow {
+  _key: string;
+  description: string;
+  quantity: number;
+  unit: string;
+  unitCost: number;
+  notes: string;
+}
+
+// ─── Constants ────────────────────────────────────────────────────────────────
 
 const UNITS = ['un', 'm2', 'ml', 'kg', 'lt', 'mts', 'rollo'] as const;
 
@@ -112,6 +125,8 @@ const purchasedByLabel: Record<string, string> = {
   TRABAJADOR: 'Trabajador',
 };
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
 function formatMoney(value: number): string {
   return new Intl.NumberFormat('es-AR', {
     style: 'currency',
@@ -124,8 +139,27 @@ function getInvoiceLabel(invoice: Invoice): string {
   return `#${invoice.number}`;
 }
 
+function createEmptyRow(): MaterialRow {
+  return {
+    _key: crypto.randomUUID(),
+    description: '',
+    quantity: 1,
+    unit: 'un',
+    unitCost: 0,
+    notes: '',
+  };
+}
+
+function rowTotal(row: MaterialRow): number {
+  return (Number(row.quantity) || 0) * (Number(row.unitCost) || 0);
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
+
 export default function MaterialsTab({ project, onRefresh }: MaterialsTabProps) {
-  const [dialogOpen, setDialogOpen] = useState(false);
+  // ── State ───────────────────────────────────────────────────────────────────
+
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editingMaterial, setEditingMaterial] = useState<Material | null>(null);
   const [deletingMaterial, setDeletingMaterial] = useState<Material | null>(null);
   const [markingReimbursed, setMarkingReimbursed] = useState<string | null>(null);
@@ -134,6 +168,15 @@ export default function MaterialsTab({ project, onRefresh }: MaterialsTabProps) 
   const [linkInvoiceId, setLinkInvoiceId] = useState<string>('__none');
   const [linking, setLinking] = useState(false);
 
+  // Batch create state
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [rows, setRows] = useState<MaterialRow[]>([createEmptyRow()]);
+  const [batchPurchasedBy, setBatchPurchasedBy] = useState<'YO' | 'CLIENTE' | 'TRABAJADOR'>('YO');
+  const [batchNotes, setBatchNotes] = useState('');
+  const [batchSaving, setBatchSaving] = useState(false);
+
+  // ── Derived data ────────────────────────────────────────────────────────────
+
   const materials = useMemo(() => {
     const items = project.materials ?? [];
     return [...items].sort(
@@ -141,13 +184,11 @@ export default function MaterialsTab({ project, onRefresh }: MaterialsTabProps) 
     );
   }, [project.materials]);
 
-  // Available invoices (not ANULADA) for linking
   const availableInvoices = useMemo(() => {
     const invoices = project.invoices ?? [];
     return invoices.filter((inv) => inv.status !== 'ANULADA');
   }, [project.invoices]);
 
-  // Map invoice id -> invoice for quick lookup
   const invoiceMap = useMemo(() => {
     const map = new Map<string, Invoice>();
     (project.invoices ?? []).forEach((inv) => map.set(inv.id, inv));
@@ -186,7 +227,6 @@ export default function MaterialsTab({ project, onRefresh }: MaterialsTabProps) 
     [materials]
   );
 
-  // Pending to invoice: purchasedBy YO or TRABAJADOR, without invoiceId
   const pendingToInvoice = useMemo(
     () =>
       materials.filter(
@@ -201,6 +241,18 @@ export default function MaterialsTab({ project, onRefresh }: MaterialsTabProps) 
     () => pendingToInvoice.reduce((sum, m) => sum + m.totalCost, 0),
     [pendingToInvoice]
   );
+
+  const batchGrandTotal = useMemo(
+    () => rows.reduce((sum, r) => sum + rowTotal(r), 0),
+    [rows]
+  );
+
+  const validBatchRows = useMemo(
+    () => rows.filter((r) => r.description.trim() !== ''),
+    [rows]
+  );
+
+  // ── Edit form (react-hook-form for single edit) ────────────────────────────
 
   const form = useForm<MaterialFormValues>({
     resolver: zodResolver(materialSchema),
@@ -217,28 +269,38 @@ export default function MaterialsTab({ project, onRefresh }: MaterialsTabProps) 
     },
   });
 
-  // Auto-calculate total cost preview from quantity * unitCost
   const quantity = form.watch('quantity');
   const unitCost = form.watch('unitCost');
   const purchasedBy = form.watch('purchasedBy');
   const reimbursed = form.watch('reimbursed');
   const totalPreview = (Number(quantity) || 0) * (Number(unitCost) || 0);
 
-  // Reset form when dialog opens / closes
-  const openCreateDialog = () => {
-    setEditingMaterial(null);
-    form.reset({
-      description: '',
-      quantity: 1,
-      unit: 'un',
-      unitCost: 0,
-      purchasedBy: 'YO',
-      reimbursed: false,
-      invoiceNumber: '',
-      invoiceId: '__none',
-      notes: '',
+  // ── Batch row management ────────────────────────────────────────────────────
+
+  const addRow = useCallback(() => {
+    setRows((prev) => [...prev, createEmptyRow()]);
+  }, []);
+
+  const removeRow = useCallback((key: string) => {
+    setRows((prev) => {
+      if (prev.length <= 1) return prev;
+      return prev.filter((r) => r._key !== key);
     });
-    setDialogOpen(true);
+  }, []);
+
+  const updateRow = useCallback((key: string, field: keyof MaterialRow, value: string | number) => {
+    setRows((prev) =>
+      prev.map((r) => (r._key === key ? { ...r, [field]: value } : r))
+    );
+  }, []);
+
+  // ── Dialog handlers ─────────────────────────────────────────────────────────
+
+  const openCreateDialog = () => {
+    setRows([createEmptyRow()]);
+    setBatchPurchasedBy('YO');
+    setBatchNotes('');
+    setCreateDialogOpen(true);
   };
 
   const openEditDialog = (material: Material) => {
@@ -254,8 +316,51 @@ export default function MaterialsTab({ project, onRefresh }: MaterialsTabProps) 
       invoiceId: material.invoiceId ?? '__none',
       notes: material.notes ?? '',
     });
-    setDialogOpen(true);
+    setEditDialogOpen(true);
   };
+
+  // ── Batch submit ────────────────────────────────────────────────────────────
+
+  const handleBatchCreate = async () => {
+    if (validBatchRows.length === 0) {
+      toast.error('Agregá al menos un material con descripción');
+      return;
+    }
+
+    setBatchSaving(true);
+    try {
+      const res = await fetch(`/api/projects/${project.id}/materials`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          materials: validBatchRows.map((r) => ({
+            description: r.description,
+            quantity: Number(r.quantity) || 1,
+            unit: r.unit,
+            unitCost: Number(r.unitCost) || 0,
+            purchasedBy: batchPurchasedBy,
+            notes: batchNotes || undefined,
+          })),
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        toast.success(`${data.count} material${data.count > 1 ? 'es' : ''} creado${data.count > 1 ? 's' : ''}`);
+        setCreateDialogOpen(false);
+        onRefresh();
+      } else {
+        const err = await res.json();
+        toast.error(err.error ?? 'Error al crear los materiales');
+      }
+    } catch {
+      toast.error('Error de conexión');
+    } finally {
+      setBatchSaving(false);
+    }
+  };
+
+  // ── Single edit submit ──────────────────────────────────────────────────────
 
   const onSubmit = async (values: MaterialFormValues) => {
     try {
@@ -295,8 +400,8 @@ export default function MaterialsTab({ project, onRefresh }: MaterialsTabProps) 
       }
 
       if (res.ok) {
-        toast.success(editingMaterial ? 'Material actualizado' : 'Material creado');
-        setDialogOpen(false);
+        toast.success('Material actualizado');
+        setEditDialogOpen(false);
         onRefresh();
       } else {
         const err = await res.json();
@@ -306,6 +411,8 @@ export default function MaterialsTab({ project, onRefresh }: MaterialsTabProps) 
       toast.error('Error de conexión');
     }
   };
+
+  // ── Delete ──────────────────────────────────────────────────────────────────
 
   const handleDelete = async () => {
     if (!deletingMaterial) return;
@@ -325,6 +432,8 @@ export default function MaterialsTab({ project, onRefresh }: MaterialsTabProps) 
       toast.error('Error de conexión');
     }
   };
+
+  // ── Reimbursed ──────────────────────────────────────────────────────────────
 
   const handleMarkReimbursed = async (materialId: string) => {
     setMarkingReimbursed(materialId);
@@ -348,14 +457,14 @@ export default function MaterialsTab({ project, onRefresh }: MaterialsTabProps) 
     }
   };
 
-  // Open the quick-link dialog
+  // ── Link / Unlink ───────────────────────────────────────────────────────────
+
   const openLinkDialog = (material: Material) => {
     setLinkingMaterial(material);
     setLinkInvoiceId('__none');
     setLinkDialogOpen(true);
   };
 
-  // Submit the quick-link action
   const handleLinkInvoice = async () => {
     if (!linkingMaterial) return;
     const invoiceId =
@@ -392,7 +501,6 @@ export default function MaterialsTab({ project, onRefresh }: MaterialsTabProps) 
     }
   };
 
-  // Unlink invoice from a material
   const handleUnlinkInvoice = async (material: Material) => {
     try {
       const res = await fetch(`/api/materials/${material.id}`, {
@@ -412,12 +520,12 @@ export default function MaterialsTab({ project, onRefresh }: MaterialsTabProps) 
     }
   };
 
-  // Helper to determine if a material can be linked (no invoice, purchasedBy != CLIENTE)
   const canLink = (m: Material) =>
     !m.invoiceId && m.purchasedBy !== 'CLIENTE';
 
-  // Helper to determine if a material can be unlinked (has invoiceId)
   const canUnlink = (m: Material) => !!m.invoiceId;
+
+  // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-6">
@@ -431,11 +539,11 @@ export default function MaterialsTab({ project, onRefresh }: MaterialsTabProps) 
         </div>
         <Button onClick={openCreateDialog} className="gap-2">
           <Plus className="size-4" />
-          Nuevo Material
+          Agregar Materiales
         </Button>
       </div>
 
-      {/* Alert Banner for Pending to Invoice */}
+      {/* Alert Banner */}
       {pendingToInvoice.length > 0 && (
         <Alert className="border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-700 dark:bg-amber-950/50 dark:text-amber-200">
           <AlertTriangle className="size-4 text-amber-600 dark:text-amber-400" />
@@ -709,17 +817,229 @@ export default function MaterialsTab({ project, onRefresh }: MaterialsTabProps) 
         </div>
       )}
 
-      {/* Create / Edit Dialog */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+      {/* ── Batch Create Dialog ──────────────────────────────────────────────── */}
+      <Dialog
+        open={createDialogOpen}
+        onOpenChange={(open) => {
+          // Only close via explicit buttons, NOT on outside click
+          if (!open) return;
+          setCreateDialogOpen(false);
+        }}
+      >
+        <DialogContent
+          className="max-w-4xl max-h-[92vh] overflow-y-auto"
+          onInteractOutside={(e) => e.preventDefault()}
+          onEscapeKeyDown={(e) => e.preventDefault()}
+        >
           <DialogHeader>
-            <DialogTitle>
-              {editingMaterial ? 'Editar Material' : 'Nuevo Material'}
+            <DialogTitle className="flex items-center gap-2">
+              <Package className="size-5" />
+              Agregar Materiales
             </DialogTitle>
             <DialogDescription>
-              {editingMaterial
-                ? 'Modifica los datos del material.'
-                : 'Completa los datos para agregar un nuevo material.'}
+              Cargá todos los materiales de la compra. Podés agregar varias filas
+              — se guardan todos de una vez.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {/* Shared fields row */}
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+              <div className="flex-1 space-y-1.5">
+                <label className="text-sm font-medium">Comprado por</label>
+                <Select
+                  value={batchPurchasedBy}
+                  onValueChange={(v) =>
+                    setBatchPurchasedBy(v as 'YO' | 'CLIENTE' | 'TRABAJADOR')
+                  }
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {purchasedByOptions.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex-[2] space-y-1.5">
+                <label className="text-sm font-medium">Notas (compartidas)</label>
+                <Input
+                  placeholder="Notas opcionales para todos los materiales..."
+                  value={batchNotes}
+                  onChange={(e) => setBatchNotes(e.target.value)}
+                />
+              </div>
+            </div>
+
+            {/* Rows table */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium text-muted-foreground">
+                  {validBatchRows.length} material{validBatchRows.length !== 1 ? 'es' : ''} con descripción
+                </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={addRow}
+                >
+                  <Plus className="size-3.5" />
+                  Agregar fila
+                </Button>
+              </div>
+
+              <div className="rounded-md border">
+                <div className="max-h-[400px] overflow-y-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-[36px]" />
+                        <TableHead>Descripción</TableHead>
+                        <TableHead className="text-right w-24">Cantidad</TableHead>
+                        <TableHead className="text-center w-24">Unidad</TableHead>
+                        <TableHead className="text-right w-28">Costo Unit.</TableHead>
+                        <TableHead className="text-right w-28">Subtotal</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {rows.map((row, idx) => (
+                        <TableRow key={row._key}>
+                          <TableCell className="px-2">
+                            <span className="flex size-7 items-center justify-center rounded-full bg-muted text-xs font-medium">
+                              {idx + 1}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              placeholder="Ej: Cemento Portland"
+                              className="h-9"
+                              value={row.description}
+                              onChange={(e) =>
+                                updateRow(row._key, 'description', e.target.value)
+                              }
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' && idx === rows.length - 1) {
+                                  e.preventDefault();
+                                  addRow();
+                                }
+                              }}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              type="number"
+                              min="0.01"
+                              step="any"
+                              className="h-9 text-right"
+                              value={row.quantity || ''}
+                              onChange={(e) =>
+                                updateRow(
+                                  row._key,
+                                  'quantity',
+                                  parseFloat(e.target.value) || 0
+                                )
+                              }
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Select
+                              value={row.unit}
+                              onValueChange={(v) => updateRow(row._key, 'unit', v)}
+                            >
+                              <SelectTrigger className="h-9">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {UNITS.map((u) => (
+                                  <SelectItem key={u} value={u}>
+                                    {u}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              type="number"
+                              min="0"
+                              step="any"
+                              className="h-9 text-right"
+                              value={row.unitCost || ''}
+                              onChange={(e) =>
+                                updateRow(
+                                  row._key,
+                                  'unitCost',
+                                  parseFloat(e.target.value) || 0
+                                )
+                              }
+                            />
+                          </TableCell>
+                          <TableCell className="text-right font-medium tabular-nums">
+                            {formatMoney(rowTotal(row))}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            </div>
+
+            {/* Grand total */}
+            <div className="flex items-center justify-between rounded-lg border bg-muted/50 px-4 py-3">
+              <span className="text-sm font-medium">
+                Total ({validBatchRows.length} material{validBatchRows.length !== 1 ? 'es' : ''})
+              </span>
+              <span className="text-lg font-bold">
+                {formatMoney(batchGrandTotal)}
+              </span>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setCreateDialogOpen(false)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              onClick={handleBatchCreate}
+              disabled={batchSaving || validBatchRows.length === 0}
+            >
+              {batchSaving
+                ? 'Guardando...'
+                : `Crear ${validBatchRows.length} material${validBatchRows.length !== 1 ? 'es' : ''}`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Edit Dialog (single material) ────────────────────────────────────── */}
+      <Dialog
+        open={editDialogOpen}
+        onOpenChange={(open) => {
+          // Only close via explicit buttons
+          if (!open) return;
+          setEditDialogOpen(false);
+        }}
+      >
+        <DialogContent
+          className="max-w-lg max-h-[90vh] overflow-y-auto"
+          onInteractOutside={(e) => e.preventDefault()}
+          onEscapeKeyDown={(e) => e.preventDefault()}
+        >
+          <DialogHeader>
+            <DialogTitle>Editar Material</DialogTitle>
+            <DialogDescription>
+              Modifica los datos del material.
             </DialogDescription>
           </DialogHeader>
           <Form {...form}>
@@ -805,7 +1125,6 @@ export default function MaterialsTab({ project, onRefresh }: MaterialsTabProps) 
                   </FormItem>
                 )}
               />
-              {/* Auto-calculated total preview */}
               <div className="rounded-md border bg-muted/50 px-4 py-2.5">
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-muted-foreground">
@@ -859,7 +1178,6 @@ export default function MaterialsTab({ project, onRefresh }: MaterialsTabProps) 
                   )}
                 />
               )}
-              {/* Factura Vinculada - only for YO or TRABAJADOR */}
               {(purchasedBy === 'YO' || purchasedBy === 'TRABAJADOR') && (
                 <FormField
                   control={form.control}
@@ -929,22 +1247,31 @@ export default function MaterialsTab({ project, onRefresh }: MaterialsTabProps) 
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => setDialogOpen(false)}
+                  onClick={() => setEditDialogOpen(false)}
                 >
                   Cancelar
                 </Button>
-                <Button type="submit">
-                  {editingMaterial ? 'Guardar Cambios' : 'Crear Material'}
-                </Button>
+                <Button type="submit">Guardar Cambios</Button>
               </DialogFooter>
             </form>
           </Form>
         </DialogContent>
       </Dialog>
 
-      {/* Quick Link to Invoice Dialog */}
-      <Dialog open={linkDialogOpen} onOpenChange={setLinkDialogOpen}>
-        <DialogContent className="max-w-md">
+      {/* ── Quick Link to Invoice Dialog ─────────────────────────────────────── */}
+      <Dialog
+        open={linkDialogOpen}
+        onOpenChange={(open) => {
+          // Only close via explicit buttons
+          if (!open) return;
+          setLinkDialogOpen(false);
+        }}
+      >
+        <DialogContent
+          className="max-w-md"
+          onInteractOutside={(e) => e.preventDefault()}
+          onEscapeKeyDown={(e) => e.preventDefault()}
+        >
           <DialogHeader>
             <DialogTitle>Vincular material a factura</DialogTitle>
             <DialogDescription>
