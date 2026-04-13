@@ -179,5 +179,6 @@ export type AppView =
   | 'dashboard'
   | 'clients'
   | 'workers'
+  | 'worker-detail'
   | 'projects'
   | 'project-detail';

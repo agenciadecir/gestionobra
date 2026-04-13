@@ -114,7 +114,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           <div className="flex items-center gap-2">
             <Home className="size-4 text-muted-foreground" />
             <span className="text-sm text-muted-foreground">
-              {navItems.find((i) => i.view === currentView)?.label ?? 'Dashboard'}
+              {currentView === 'worker-detail'
+                ? 'Trabajadores / Detalle'
+                : currentView === 'project-detail'
+                  ? 'Obras / Detalle'
+                  : navItems.find((i) => i.view === currentView)?.label ?? 'Dashboard'}
             </span>
           </div>
         </header>

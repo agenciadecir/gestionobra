@@ -5,6 +5,7 @@ import AppShell from '@/components/app/AppShell';
 import Dashboard from '@/components/app/Dashboard';
 import ClientsView from '@/components/app/ClientsView';
 import WorkersView from '@/components/app/WorkersView';
+import WorkerDetail from '@/components/app/WorkerDetail';
 import ProjectsView from '@/components/app/ProjectsView';
 import ProjectDetail from '@/components/app/ProjectDetail';
 
@@ -19,6 +20,8 @@ export default function Home() {
         return <ClientsView key="clients" />;
       case 'workers':
         return <WorkersView key="workers" />;
+      case 'worker-detail':
+        return <WorkerDetail key="worker-detail" />;
       case 'projects':
         return <ProjectsView key="projects" />;
       case 'project-detail':

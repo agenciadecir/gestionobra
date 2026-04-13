@@ -15,6 +15,12 @@ export async function GET(
             project: {
               select: { id: true, title: true },
             },
+            workerPayments: {
+              orderBy: { date: "desc" },
+            },
+            invoice: {
+              select: { id: true, number: true },
+            },
           },
           orderBy: { createdAt: "desc" },
         },

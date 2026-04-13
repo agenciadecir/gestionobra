@@ -6,7 +6,8 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
 import type { Worker } from '@/lib/types';
-import { Plus, Search, Pencil, Trash2, HardHat } from 'lucide-react';
+import { useAppStore } from '@/lib/store';
+import { Plus, Search, Pencil, Trash2, HardHat, Eye } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -57,6 +58,7 @@ const workerSchema = z.object({
 type WorkerFormValues = z.infer<typeof workerSchema>;
 
 export default function WorkersView() {
+  const { setSelectedWorker } = useAppStore();
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -259,6 +261,15 @@ export default function WorkersView() {
                           variant="ghost"
                           size="icon"
                           className="size-8"
+                          onClick={() => setSelectedWorker(worker.id)}
+                          title="Ver detalle"
+                        >
+                          <Eye className="size-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-8"
                           onClick={() => openEditDialog(worker)}
                         >
                           <Pencil className="size-4" />
@@ -285,7 +296,11 @@ export default function WorkersView() {
           {/* Mobile cards */}
           <div className="space-y-3 md:hidden">
             {filteredWorkers.map((worker) => (
-              <Card key={worker.id}>
+              <Card
+                key={worker.id}
+                className="cursor-pointer hover:bg-muted/30 transition-colors"
+                onClick={() => setSelectedWorker(worker.id)}
+              >
                 <CardContent className="flex items-start justify-between pt-6">
                   <div className="space-y-1">
                     <span className="font-medium">{worker.name}</span>
@@ -299,7 +314,7 @@ export default function WorkersView() {
                       {worker._count?.laborCosts ?? 0} costo(s) · {worker._count?.tasks ?? 0} tarea(s)
                     </p>
                   </div>
-                  <div className="flex gap-1">
+                  <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
                     <Button
                       variant="ghost"
                       size="icon"
